@@ -1,9 +1,10 @@
 import json
 import subprocess
+import sys
 from pathlib import Path
 
 def run_ffmpeg(ffmpeg: str, args: list[str]) -> None:
-    p = subprocess.run([ffmpeg, *args], capture_output=True, text=True, encoding="utf-8", errors="replace")
+    p = subprocess.run([ffmpeg, *args], capture_output=True, text=True, encoding="utf-8", errors="replace", creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0)
     if p.returncode:
         raise RuntimeError(p.stderr[-4000:] or "FFmpeg 执行失败")
 
@@ -11,7 +12,7 @@ def extract_audio(ffmpeg: str, video: str, wav: str) -> None:
     run_ffmpeg(ffmpeg, ["-y", "-i", video, "-vn", "-ac", "1", "-ar", "16000", wav])
 
 def probe_duration(ffmpeg: str, video: str) -> float:
-    p = subprocess.run([ffmpeg, "-i", video], capture_output=True, text=True, encoding="utf-8", errors="replace")
+    p = subprocess.run([ffmpeg, "-i", video], capture_output=True, text=True, encoding="utf-8", errors="replace", creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0)
     import re
     m = re.search(r"Duration:\s*(\d+):(\d+):(\d+(?:\.\d+)?)", p.stderr)
     if not m: raise RuntimeError("无法读取视频时长")
