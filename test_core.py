@@ -7,7 +7,7 @@ from downloader_service import extract_media_choice, download_video, safe_filena
 from rename_service import rename_media_bundle
 from downloader import extract_share_urls
 from batch_service import run_batch
-from app_config import save_credentials
+from app_config import save_credentials, save_settings, load_settings
 from asr import transcribe_request_config, segments_to_srt, segments_to_text
 from media import fixed_scenes
 from ai import validate_plan
@@ -30,6 +30,28 @@ class TestCore(unittest.TestCase):
             save_credentials("download-key", "groq-key", path)
             data = json.loads(path.read_text(encoding="utf-8"))
             self.assertEqual(data, {"henghengmao_api_key": "download-key", "groq_api_key": "groq-key"})
+
+    def test_settings_round_trip_keeps_all_ui_values(self):
+        from tempfile import TemporaryDirectory
+        values = {
+            "output_directory": "D:/video-output", "download_quality": "1080P",
+            "workers": "4", "ffmpeg": "D:/tools/ffmpeg.exe", "source_lang": "日语",
+            "henghengmao_api_key": "download-key", "groq_api_key": "groq-key",
+            "llm_url": "https://example.com/v1", "llm_key": "llm-key",
+            "llm_model": "qwen-plus", "target_lang": "韩语",
+            "writing_style": "故事叙述", "writing_length": "缩短文案"
+        }
+        with TemporaryDirectory() as folder:
+            path = Path(folder) / "settings.local.json"
+            save_settings(values, path)
+            self.assertEqual(load_settings(path), values)
+
+    def test_load_settings_returns_empty_for_invalid_json(self):
+        from tempfile import TemporaryDirectory
+        with TemporaryDirectory() as folder:
+            path = Path(folder) / "settings.local.json"
+            path.write_text("not-json", encoding="utf-8")
+            self.assertEqual(load_settings(path), {})
     def test_scenes(self): self.assertEqual(fixed_scenes(11,5)[-1]["end"],11)
     def test_invalid_speed(self):
         with self.assertRaises(ValueError): validate_plan({"timeline":[{"scene_id":1,"rewrite_segment_id":1,"speed":2}]},[{"id":1,"start":0,"end":2}],{"segments":[{"id":1}]},2)

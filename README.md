@@ -14,11 +14,11 @@
 ## 首次使用
 
 1. 安装 FFmpeg，并在界面选择 `ffmpeg.exe`；如果 FFmpeg 已加入 PATH，软件会自动识别。
-2. 在“处理设置”中填写“哼哼猫 Key”和“Groq Key”。
-3. 点击“保存密钥到本机”。下次启动时会自动加载。
-4. 填写大模型的 URL、Key 和模型名称后即可使用 AI 改写与剪辑。
+2. 展开“接口与工具配置”，填写哼哼猫、Groq 和大模型接口配置。
+3. 点击“保存全部配置”。输出目录、处理选项、FFmpeg 和接口配置会在下次启动时自动恢复。
+4. 软件正常关闭时也会自动保存当前配置。
 
-密钥保存在程序同目录的 `credentials.local.json`。该文件已加入 `.gitignore`，不会提交到 Git。也可以复制 `credentials.example.json` 并改名为 `credentials.local.json` 后手动填写。
+全部设置保存在程序同目录的 `settings.local.json`。该文件已加入 `.gitignore`，不会提交到 Git。旧版 `credentials.local.json` 仍可读取，保存新配置后会统一迁移到新配置文件。
 
 ## 本地运行
 

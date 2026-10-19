@@ -5,5 +5,7 @@ build/
 dist/
 *.spec
 credentials.local.json
+settings.local.json
 *.exe
 testdata/output.mp4
+ui-preview.png

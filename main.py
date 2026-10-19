@@ -4,70 +4,77 @@ import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
 import downloader_service, media, asr, ai, rename_service
 from batch_service import run_batch
-from app_config import henghengmao_key, groq_key, save_credentials
+from app_config import henghengmao_key, groq_key, load_settings, save_settings
 from downloader import extract_share_urls
 
 class App(tk.Tk):
     def __init__(self):
-        super().__init__(); self.title("VideoFlow · 短视频智能工作台"); self.geometry("1120x900"); self.minsize(960,760); self.configure(bg="#F3F6FA"); self.project=None; self.ffmpeg=tk.StringVar(value=shutil.which("ffmpeg") or "")
-        self.download_key=tk.StringVar(value=henghengmao_key()); self.groq_key=tk.StringVar(value=groq_key()); self.download_quality=tk.StringVar(value="推荐"); self.workers=tk.StringVar(value="2"); self.source_lang=tk.StringVar(value="中文"); self.llm_url=tk.StringVar(); self.llm_key=tk.StringVar(); self.llm_model=tk.StringVar(value="gemini-2.5-flash"); self.lang=tk.StringVar(value="英语")
-        self.style=tk.StringVar(value="自然口播"); self.length=tk.StringVar(value="保持原时长")
+        super().__init__(); self.title("VideoFlow · 短视频智能工作台"); self.geometry("1180x820"); self.minsize(1000,720); self.configure(bg="#EEF1F5")
+        saved=load_settings(); output=saved.get("output_directory",""); self.project=Path(output) if output else None
+        self.ffmpeg=tk.StringVar(value=saved.get("ffmpeg") or shutil.which("ffmpeg") or "")
+        self.download_key=tk.StringVar(value=saved.get("henghengmao_api_key") or henghengmao_key()); self.groq_key=tk.StringVar(value=saved.get("groq_api_key") or groq_key())
+        self.download_quality=tk.StringVar(value=saved.get("download_quality","推荐")); self.workers=tk.StringVar(value=saved.get("workers","2")); self.source_lang=tk.StringVar(value=saved.get("source_lang","中文"))
+        self.llm_url=tk.StringVar(value=saved.get("llm_url","")); self.llm_key=tk.StringVar(value=saved.get("llm_key","")); self.llm_model=tk.StringVar(value=saved.get("llm_model","gemini-2.5-flash")); self.lang=tk.StringVar(value=saved.get("target_lang","英语"))
+        self.style=tk.StringVar(value=saved.get("writing_style","自然口播")); self.length=tk.StringVar(value=saved.get("writing_length","保持原时长"))
         self.status=tk.StringVar(value="就绪")
-        self.project_text=tk.StringVar(value="尚未选择输出目录")
+        self.project_text=tk.StringVar(value=f"输出到：{self.project}" if self.project else "尚未选择输出目录")
         self._setup_style()
         self.build()
+        self.protocol("WM_DELETE_WINDOW",self.close_app)
     def _setup_style(self):
         style=ttk.Style(self); style.theme_use("clam")
-        style.configure("TFrame",background="#F3F6FA"); style.configure("Card.TFrame",background="#FFFFFF")
-        style.configure("TLabel",background="#F3F6FA",foreground="#25324B",font=("Microsoft YaHei UI",9))
-        style.configure("Card.TLabel",background="#FFFFFF",foreground="#25324B",font=("Microsoft YaHei UI",9))
-        style.configure("Title.TLabel",background="#17233D",foreground="#FFFFFF",font=("Microsoft YaHei UI",20,"bold"))
-        style.configure("Subtitle.TLabel",background="#17233D",foreground="#AFC1E5",font=("Microsoft YaHei UI",9))
-        style.configure("Section.TLabel",background="#FFFFFF",foreground="#17233D",font=("Microsoft YaHei UI",11,"bold"))
-        style.configure("Muted.TLabel",background="#FFFFFF",foreground="#758198",font=("Microsoft YaHei UI",8))
-        style.configure("Status.TLabel",background="#E8F1FF",foreground="#185ADB",font=("Microsoft YaHei UI",9,"bold"),padding=(10,6))
-        style.configure("TButton",font=("Microsoft YaHei UI",9),padding=(11,7),background="#E8EDF5",foreground="#25324B",borderwidth=0)
-        style.map("TButton",background=[("active","#DCE4F0")])
-        style.configure("Primary.TButton",font=("Microsoft YaHei UI",9,"bold"),padding=(14,8),background="#2563EB",foreground="#FFFFFF")
-        style.map("Primary.TButton",background=[("active","#1D4ED8")])
-        style.configure("Step.TButton",font=("Microsoft YaHei UI",9,"bold"),padding=(14,9),background="#FFFFFF",foreground="#23395D")
-        style.map("Step.TButton",background=[("active","#EDF3FF")])
-        style.configure("TEntry",padding=7,fieldbackground="#F7F9FC",bordercolor="#D9E1EC"); style.configure("TCombobox",padding=6,fieldbackground="#F7F9FC")
+        style.configure("TFrame",background="#EEF1F5"); style.configure("Panel.TFrame",background="#FFFFFF")
+        style.configure("TLabel",background="#EEF1F5",foreground="#203047",font=("Microsoft YaHei UI",9))
+        style.configure("Panel.TLabel",background="#FFFFFF",foreground="#203047",font=("Microsoft YaHei UI",9))
+        style.configure("Brand.TLabel",background="#152238",foreground="#FFFFFF",font=("Microsoft YaHei UI",19,"bold"))
+        style.configure("BrandSub.TLabel",background="#152238",foreground="#A8B7CC",font=("Microsoft YaHei UI",9))
+        style.configure("Section.TLabel",background="#FFFFFF",foreground="#152238",font=("Microsoft YaHei UI",12,"bold"))
+        style.configure("Muted.TLabel",background="#FFFFFF",foreground="#718096",font=("Microsoft YaHei UI",8))
+        style.configure("Status.TLabel",background="#E9F5F0",foreground="#167356",font=("Microsoft YaHei UI",9,"bold"),padding=(11,6))
+        style.configure("TButton",font=("Microsoft YaHei UI",9),padding=(11,7),background="#E7EBF0",foreground="#203047",borderwidth=0)
+        style.map("TButton",background=[("active","#D8DEE7")])
+        style.configure("Primary.TButton",font=("Microsoft YaHei UI",9,"bold"),padding=(14,9),background="#F06449",foreground="#FFFFFF")
+        style.map("Primary.TButton",background=[("active","#D95239")])
+        style.configure("Flow.TButton",font=("Microsoft YaHei UI",9,"bold"),padding=(13,10),background="#F2F5F8",foreground="#203047")
+        style.map("Flow.TButton",background=[("active","#E4EAF1")])
+        style.configure("TEntry",padding=7,fieldbackground="#F8FAFC",bordercolor="#D5DCE5"); style.configure("TCombobox",padding=6,fieldbackground="#F8FAFC")
     def build(self):
-        header=tk.Frame(self,bg="#17233D",height=104); header.pack(fill="x"); header.pack_propagate(False)
-        title=tk.Frame(header,bg="#17233D"); title.pack(fill="both",expand=True,padx=28,pady=(16,14))
-        ttk.Label(title,text="VideoFlow",style="Title.TLabel").pack(anchor="w"); ttk.Label(title,text="下载、转写、改写与剪辑，在一个工作台完成",style="Subtitle.TLabel").pack(anchor="w",pady=(7,0),ipady=2)
-        body=ttk.Frame(self,padding=(22,18)); body.pack(fill="both",expand=True); body.columnconfigure(0,weight=3); body.columnconfigure(1,weight=2); body.rowconfigure(1,weight=1)
-        top=ttk.Frame(body,style="Card.TFrame",padding=16); top.grid(row=0,column=0,sticky="nsew",padx=(0,8),pady=(0,10)); top.columnconfigure(0,weight=1)
-        ttk.Label(top,text="1  添加视频",style="Section.TLabel").grid(row=0,column=0,sticky="w"); ttk.Label(top,text="支持整段分享文案，每行可放一条或多条链接",style="Muted.TLabel").grid(row=1,column=0,sticky="w",pady=(2,8))
-        self.url_text=tk.Text(top,height=7,wrap="word",font=("Microsoft YaHei UI",10),bg="#F7F9FC",fg="#25324B",insertbackground="#2563EB",relief="flat",padx=10,pady=9,highlightthickness=1,highlightbackground="#D9E1EC",highlightcolor="#2563EB"); self.url_text.grid(row=2,column=0,columnspan=2,sticky="nsew")
-        ttk.Label(top,textvariable=self.project_text,style="Muted.TLabel").grid(row=3,column=0,sticky="w",pady=(10,0)); source_actions=ttk.Frame(top,style="Card.TFrame"); source_actions.grid(row=3,column=1,sticky="e",pady=(10,0)); ttk.Button(source_actions,text="选择输出目录",command=self.choose_project).pack(side="left",padx=(0,6)); ttk.Button(source_actions,text="打开输出目录",command=self.open_project).pack(side="left",padx=(0,6)); ttk.Button(source_actions,text="开始批量下载",style="Primary.TButton",command=self.start_download).pack(side="left")
-        settings=ttk.Frame(body,style="Card.TFrame",padding=16); settings.grid(row=0,column=1,sticky="nsew",padx=(8,0),pady=(0,10)); settings.columnconfigure(0,weight=1); settings.columnconfigure(1,weight=1)
-        ttk.Label(settings,text="2  处理设置",style="Section.TLabel").grid(row=0,column=0,columnspan=2,sticky="w")
-        ttk.Label(settings,text="下载：哼哼猫 API   ·   转写：Groq Whisper",style="Muted.TLabel").grid(row=1,column=0,columnspan=2,sticky="w",pady=(2,8))
-        self._combo(settings, "视频清晰度", self.download_quality, ["推荐", "最高", "1080P", "720P"], row=2, col=0)
-        self._combo(settings, "并发任务数", self.workers, ["1", "2", "3", "4"], row=3, col=0)
-        self._field(settings, "FFmpeg", self.ffmpeg, browse=True, row=4, col=0)
-        self._combo(settings, "原声语言", self.source_lang, ["中文", "英语", "日语", "韩语", "西班牙语", "法语", "德语"], row=5, col=0)
-        self._field(settings, "哼哼猫 Key", self.download_key, secret=True, row=6, col=0)
-        self._field(settings, "Groq Key", self.groq_key, secret=True, row=7, col=0)
-        ttk.Button(settings,text="保存密钥到本机",command=self.save_api_keys).grid(row=8,column=0,columnspan=2,sticky="e",pady=(3,7))
-        self._field(settings, "LLM URL", self.llm_url, row=9, col=0)
-        self._field(settings, "LLM Key", self.llm_key, secret=True, row=10, col=0)
-        self._combo(settings, "LLM Model", self.llm_model, ["gemini-2.5-flash", "gemini-2.5-flash-lite", "gpt-4o-mini", "qwen-plus", "自定义模型"], row=11, col=0, editable=True)
-        self._combo(settings, "目标语言", self.lang, ["英语", "日语", "韩语", "西班牙语", "法语", "德语"], row=12, col=0)
-        self._combo(settings, "文案风格", self.style, ["自然口播", "新闻讲解", "产品介绍", "故事叙述", "短视频营销"], row=13, col=0)
-        self._combo(settings, "文案长度", self.length, ["保持原时长", "缩短文案", "适当扩展"], row=14, col=0)
-        workspace=ttk.Frame(body,style="Card.TFrame",padding=16); workspace.grid(row=1,column=0,columnspan=2,sticky="nsew"); workspace.columnconfigure(0,weight=1); workspace.rowconfigure(2,weight=1)
-        ttk.Label(workspace,text="3  执行任务",style="Section.TLabel").grid(row=0,column=0,sticky="w"); actions=ttk.Frame(workspace,style="Card.TFrame"); actions.grid(row=1,column=0,sticky="ew",pady=(9,10)); ttk.Button(actions,text="生成 SRT + TXT",style="Step.TButton",command=self.start_transcribe).pack(side="left",padx=(0,7)); ttk.Button(actions,text="AI 改写",style="Step.TButton",command=self.start_rewrite).pack(side="left",padx=7); ttk.Button(actions,text="生成并执行剪辑",style="Step.TButton",command=self.start_edit).pack(side="left",padx=7); ttk.Button(actions,text="批量重命名",command=self.open_rename_window).pack(side="left",padx=7); ttk.Label(actions,textvariable=self.status,style="Status.TLabel").pack(side="right")
-        log_frame=tk.Frame(workspace,bg="#111827"); log_frame.grid(row=2,column=0,sticky="nsew"); self.text=tk.Text(log_frame,height=14,wrap="word",font=("Consolas",9),bg="#111827",fg="#D5DCE8",insertbackground="#FFFFFF",relief="flat",padx=12,pady=10); log_scroll=ttk.Scrollbar(log_frame,orient="vertical",command=self.text.yview); self.text.configure(yscrollcommand=log_scroll.set); self.text.pack(side="left",fill="both",expand=True); log_scroll.pack(side="right",fill="y")
+        header=tk.Frame(self,bg="#152238",height=76); header.pack(fill="x"); header.pack_propagate(False)
+        brand=tk.Frame(header,bg="#152238"); brand.pack(fill="both",expand=True,padx=26,pady=12)
+        ttk.Label(brand,text="VideoFlow",style="Brand.TLabel").pack(side="left"); ttk.Label(brand,text="把分享链接变成可编辑的视频素材",style="BrandSub.TLabel").pack(side="left",padx=18,pady=(7,0)); ttk.Label(brand,textvariable=self.status,style="Status.TLabel").pack(side="right",pady=7)
+        body=ttk.Frame(self,padding=18); body.pack(fill="both",expand=True); body.columnconfigure(0,weight=7); body.columnconfigure(1,weight=4); body.rowconfigure(1,weight=1)
+        source=ttk.Frame(body,style="Panel.TFrame",padding=18); source.grid(row=0,column=0,sticky="nsew",padx=(0,9),pady=(0,10)); source.columnconfigure(0,weight=1)
+        ttk.Label(source,text="视频来源",style="Section.TLabel").grid(row=0,column=0,sticky="w"); ttk.Label(source,text="粘贴抖音分享内容，支持多条链接批量处理",style="Muted.TLabel").grid(row=1,column=0,sticky="w",pady=(3,10))
+        self.url_text=tk.Text(source,height=8,wrap="word",font=("Microsoft YaHei UI",10),bg="#F8FAFC",fg="#203047",insertbackground="#F06449",relief="flat",padx=11,pady=10,highlightthickness=1,highlightbackground="#D5DCE5",highlightcolor="#F06449"); self.url_text.grid(row=2,column=0,sticky="nsew")
+        directory=ttk.Frame(source,style="Panel.TFrame"); directory.grid(row=3,column=0,sticky="ew",pady=(11,0)); ttk.Label(directory,textvariable=self.project_text,style="Muted.TLabel").pack(side="left",fill="x",expand=True); ttk.Button(directory,text="选择目录",command=self.choose_project).pack(side="left",padx=5); ttk.Button(directory,text="打开目录",command=self.open_project).pack(side="left")
+        flow=ttk.Frame(source,style="Panel.TFrame"); flow.grid(row=4,column=0,sticky="ew",pady=(14,0))
+        ttk.Button(flow,text="1  下载视频",style="Primary.TButton",command=self.start_download).pack(side="left",padx=(0,7)); ttk.Button(flow,text="2  生成字幕文案",style="Flow.TButton",command=self.start_transcribe).pack(side="left",padx=7); ttk.Button(flow,text="3  AI 改写",style="Flow.TButton",command=self.start_rewrite).pack(side="left",padx=7); ttk.Button(flow,text="4  生成并执行剪辑",style="Flow.TButton",command=self.start_edit).pack(side="left",padx=7)
+        settings=ttk.Frame(body,style="Panel.TFrame",padding=18); settings.grid(row=0,column=1,sticky="nsew",padx=(9,0),pady=(0,10)); settings.columnconfigure(0,weight=1)
+        ttk.Label(settings,text="处理设置",style="Section.TLabel").grid(row=0,column=0,sticky="w"); ttk.Label(settings,text="保存后下次启动自动恢复",style="Muted.TLabel").grid(row=1,column=0,sticky="w",pady=(3,9))
+        self._combo(settings,"视频清晰度",self.download_quality,["推荐","最高","1080P","720P"],2,0); self._combo(settings,"并发任务数",self.workers,["1","2","3","4"],3,0); self._combo(settings,"原声语言",self.source_lang,["中文","英语","日语","韩语","西班牙语","法语","德语"],4,0)
+        self._combo(settings,"目标语言",self.lang,["英语","日语","韩语","西班牙语","法语","德语"],5,0); self._combo(settings,"文案风格",self.style,["自然口播","新闻讲解","产品介绍","故事叙述","短视频营销"],6,0); self._combo(settings,"文案长度",self.length,["保持原时长","缩短文案","适当扩展"],7,0)
+        self.advanced_button=ttk.Button(settings,text="展开接口与工具配置",command=self.toggle_advanced); self.advanced_button.grid(row=8,column=0,sticky="ew",pady=(9,5))
+        self.advanced=ttk.Frame(settings,style="Panel.TFrame"); self._field(self.advanced,"FFmpeg",self.ffmpeg,0,0,browse=True); self._field(self.advanced,"哼哼猫 Key",self.download_key,1,0,secret=True); self._field(self.advanced,"Groq Key",self.groq_key,2,0,secret=True); self._field(self.advanced,"LLM URL",self.llm_url,3,0); self._field(self.advanced,"LLM Key",self.llm_key,4,0,secret=True); self._combo(self.advanced,"LLM Model",self.llm_model,["gemini-2.5-flash","gemini-2.5-flash-lite","gpt-4o-mini","qwen-plus","自定义模型"],5,0,editable=True)
+        controls=ttk.Frame(settings,style="Panel.TFrame"); controls.grid(row=10,column=0,sticky="ew",pady=(9,0)); ttk.Button(controls,text="批量重命名",command=self.open_rename_window).pack(side="left"); ttk.Button(controls,text="保存全部配置",style="Primary.TButton",command=self.save_all_settings).pack(side="right")
+        logs=ttk.Frame(body,style="Panel.TFrame",padding=16); logs.grid(row=1,column=0,columnspan=2,sticky="nsew"); logs.columnconfigure(0,weight=1); logs.rowconfigure(1,weight=1); ttk.Label(logs,text="任务记录",style="Section.TLabel").grid(row=0,column=0,sticky="w",pady=(0,8))
+        log_frame=tk.Frame(logs,bg="#182333"); log_frame.grid(row=1,column=0,sticky="nsew"); self.text=tk.Text(log_frame,height=10,wrap="word",font=("Consolas",9),bg="#182333",fg="#D8E0EA",insertbackground="#FFFFFF",relief="flat",padx=12,pady=10); log_scroll=ttk.Scrollbar(log_frame,orient="vertical",command=self.text.yview); self.text.configure(yscrollcommand=log_scroll.set); self.text.pack(side="left",fill="both",expand=True); log_scroll.pack(side="right",fill="y")
     def _field(self, parent, label, var, row, col, secret=False, browse=False):
-        box=ttk.Frame(parent,style="Card.TFrame"); box.grid(row=row,column=col,columnspan=2,sticky="ew",padx=0,pady=3); parent.columnconfigure(col,weight=1)
-        ttk.Label(box,text=label,width=11,style="Card.TLabel").pack(side="left"); ttk.Entry(box,textvariable=var,show="*" if secret else "").pack(side="left",fill="x",expand=True)
+        box=ttk.Frame(parent,style="Panel.TFrame"); box.grid(row=row,column=col,columnspan=2,sticky="ew",padx=0,pady=3); parent.columnconfigure(col,weight=1)
+        ttk.Label(box,text=label,width=11,style="Panel.TLabel").pack(side="left"); ttk.Entry(box,textvariable=var,show="*" if secret else "").pack(side="left",fill="x",expand=True)
         if browse: ttk.Button(box,text="选择",command=self.choose_ffmpeg,width=6).pack(side="left",padx=(4,0))
     def _combo(self, parent, label, var, values, row, col, editable=False):
-        box=ttk.Frame(parent,style="Card.TFrame"); box.grid(row=row,column=col,columnspan=2,sticky="ew",padx=0,pady=3); parent.columnconfigure(col,weight=1)
-        ttk.Label(box,text=label,width=11,style="Card.TLabel").pack(side="left"); ttk.Combobox(box,textvariable=var,values=values,state="normal" if editable else "readonly").pack(side="left",fill="x",expand=True)
+        box=ttk.Frame(parent,style="Panel.TFrame"); box.grid(row=row,column=col,columnspan=2,sticky="ew",padx=0,pady=3); parent.columnconfigure(col,weight=1)
+        ttk.Label(box,text=label,width=11,style="Panel.TLabel").pack(side="left"); ttk.Combobox(box,textvariable=var,values=values,state="normal" if editable else "readonly").pack(side="left",fill="x",expand=True)
+    def toggle_advanced(self):
+        if self.advanced.winfo_manager(): self.advanced.grid_remove(); self.advanced_button.configure(text="展开接口与工具配置")
+        else: self.advanced.grid(row=9,column=0,sticky="ew"); self.advanced_button.configure(text="收起接口与工具配置")
+    def settings_values(self):
+        return {"output_directory":str(self.project or ""),"download_quality":self.download_quality.get(),"workers":self.workers.get(),"ffmpeg":self.ffmpeg.get(),"source_lang":self.source_lang.get(),"henghengmao_api_key":self.download_key.get(),"groq_api_key":self.groq_key.get(),"llm_url":self.llm_url.get(),"llm_key":self.llm_key.get(),"llm_model":self.llm_model.get(),"target_lang":self.lang.get(),"writing_style":self.style.get(),"writing_length":self.length.get()}
+    def save_all_settings(self,notify=True):
+        path=save_settings(self.settings_values()); self.status.set("配置已保存")
+        if notify: messagebox.showinfo("保存配置",f"全部配置已保存到本机：{path.name}")
+    def close_app(self):
+        self.save_all_settings(False); self.destroy()
     def choose_project(self):
         p=filedialog.askdirectory();
         if p: self.project=Path(p); self.project_text.set(f"输出到：{p}"); self.status.set("输出目录已选择")
@@ -78,9 +85,6 @@ class App(tk.Tk):
     def choose_ffmpeg(self):
         p=filedialog.askopenfilename(title="选择 ffmpeg.exe",filetypes=[("FFmpeg", "ffmpeg.exe"), ("所有文件", "*.*")])
         if p: self.ffmpeg.set(p)
-    def save_api_keys(self):
-        if not self.download_key.get().strip() or not self.groq_key.get().strip(): messagebox.showwarning("保存密钥","请完整填写哼哼猫 Key 和 Groq Key"); return
-        path=save_credentials(self.download_key.get(),self.groq_key.get()); self.status.set("密钥已保存到本机"); messagebox.showinfo("保存密钥",f"密钥已保存：{path.name}")
     def open_rename_window(self):
         if not self.project: messagebox.showinfo("批量重命名","请先选择输出目录"); return
         folder=str(self.project)
