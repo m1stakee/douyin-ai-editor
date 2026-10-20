@@ -20,6 +20,14 @@ def verify_license(server_url: str, license_key: str, timeout: int = 12) -> tupl
     except (ValueError, TypeError):
         return False, "授权服务器返回格式错误"
 
+def verify_saved_license(license_key: str, verifier=None) -> str | None:
+    key = license_key.strip()
+    if not key:
+        return None
+    check = verifier or (lambda value: verify_license(LICENSE_SERVER_URL, value))
+    valid, _message = check(key)
+    return key if valid else None
+
 def require_license(parent, license_key: str) -> str | None:
     result=[]; win=tk.Toplevel(parent); win.title('VideoFlow 授权验证'); win.geometry('420x205'); win.resizable(False,False); win.protocol('WM_DELETE_WINDOW',win.destroy)
     frame=ttk.Frame(win,padding=24); frame.pack(fill='both',expand=True); ttk.Label(frame,text='启动授权验证',font=('Microsoft YaHei UI',15,'bold')).pack(anchor='w'); ttk.Label(frame,text='请输入授权服务器和卡密，验证成功后进入软件。').pack(anchor='w',pady=(4,15))

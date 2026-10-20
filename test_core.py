@@ -12,7 +12,7 @@ from asr import prepared_asr_audio, transcribe, transcribe_request_config, segme
 from media import fixed_scenes
 from ai import validate_plan
 from task_store import TaskStore
-from license_client import verify_license
+from license_client import verify_license, verify_saved_license
 class TestCore(unittest.TestCase):
     @patch("license_client.requests.post")
     def test_license_verification_posts_to_server(self, post):
@@ -21,6 +21,14 @@ class TestCore(unittest.TestCase):
         self.assertTrue(valid); self.assertEqual(message,"授权验证成功")
         self.assertEqual(post.call_args.args[0],"https://license.example.com/api/license/verify")
         self.assertEqual(post.call_args.kwargs["json"]["license_key"],"VF-TEST-KEY")
+
+    def test_saved_license_skips_prompt_when_valid(self):
+        verifier = Mock(return_value=(True, "授权验证成功"))
+        self.assertEqual(verify_saved_license("VF-SAVED", verifier), "VF-SAVED")
+
+    def test_invalid_saved_license_requires_prompt(self):
+        verifier = Mock(return_value=(False, "卡密已过期"))
+        self.assertIsNone(verify_saved_license("VF-OLD", verifier))
     def test_task_store_persists_items_and_marks_running_tasks_interrupted(self):
         from tempfile import TemporaryDirectory
         with TemporaryDirectory() as folder:

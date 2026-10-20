@@ -6,7 +6,7 @@ import downloader_service, media, asr, ai, rename_service
 from batch_service import run_batch
 from app_config import dashscope_key, henghengmao_key, load_settings, save_settings
 from task_store import TaskStore
-from license_client import require_license
+from license_client import require_license, verify_saved_license
 
 class App(tk.Tk):
     def __init__(self):
@@ -25,10 +25,11 @@ class App(tk.Tk):
         self.after(50, self._authorize_startup)
         self.protocol("WM_DELETE_WINDOW",self.close_app)
     def _authorize_startup(self):
-        self.deiconify(); self.update_idletasks()
-        result=require_license(self, self.license_key.get())
+        result=verify_saved_license(self.license_key.get())
+        if not result:
+            result=require_license(self, self.license_key.get())
         if not result: self.exit_process(); return
-        self.license_key.set(result); self.deiconify()
+        self.license_key.set(result); self.save_all_settings(False); self.deiconify(); self.lift()
     def _setup_style(self):
         style=ttk.Style(self); style.theme_use("clam")
         style.configure("TFrame",background="#EEF1F5"); style.configure("Panel.TFrame",background="#FFFFFF")
