@@ -29,8 +29,8 @@ def verify_saved_license(license_key: str, verifier=None) -> str | None:
     return key if valid else None
 
 def require_license(parent, license_key: str) -> str | None:
-    result=[]; win=tk.Toplevel(parent); win.title('VideoFlow 授权验证'); win.geometry('420x205'); win.resizable(False,False); win.protocol('WM_DELETE_WINDOW',win.destroy)
-    frame=ttk.Frame(win,padding=24); frame.pack(fill='both',expand=True); ttk.Label(frame,text='启动授权验证',font=('Microsoft YaHei UI',15,'bold')).pack(anchor='w'); ttk.Label(frame,text='请输入授权服务器和卡密，验证成功后进入软件。').pack(anchor='w',pady=(4,15))
+    result=[]; win=tk.Toplevel(parent); win.title('VideoFlow 授权验证'); win.geometry('440x285'); win.minsize(440,285); win.resizable(False,False); win.protocol('WM_DELETE_WINDOW',win.destroy)
+    frame=ttk.Frame(win,padding=24); frame.pack(fill='both',expand=True); ttk.Label(frame,text='启动授权验证',font=('Microsoft YaHei UI',15,'bold')).pack(anchor='w'); ttk.Label(frame,text='请输入卡密，验证成功后进入软件。').pack(anchor='w',pady=(4,15))
     key_var=tk.StringVar(value=license_key)
     row2=ttk.Frame(frame); row2.pack(fill='x',pady=4); ttk.Label(row2,text='卡密',width=8).pack(side='left'); key_entry=ttk.Entry(row2,textvariable=key_var,show='*'); key_entry.pack(side='left',fill='x',expand=True)
     status=tk.StringVar(value=''); ttk.Label(frame,textvariable=status,foreground='#C2412D').pack(anchor='w',pady=(7,0))
@@ -40,7 +40,7 @@ def require_license(parent, license_key: str) -> str | None:
         status.set('正在验证…'); win.update_idletasks(); valid,message=verify_license(LICENSE_SERVER_URL,key)
         if valid: result.append(key); win.destroy()
         else: status.set(message)
-    ttk.Button(frame,text='验证并进入',command=submit).pack(anchor='e',pady=(8,0)); win.bind('<Return>',lambda _event:submit())
+    ttk.Button(frame,text='验证并进入',command=submit).pack(side='bottom',anchor='e',pady=(12,0)); win.bind('<Return>',lambda _event:submit())
     win.update_idletasks(); x=(win.winfo_screenwidth()-win.winfo_width())//2; y=(win.winfo_screenheight()-win.winfo_height())//2; win.geometry(f'+{x}+{y}')
     win.attributes('-topmost',True); win.after(400,lambda:win.winfo_exists() and win.attributes('-topmost',False)); win.grab_set(); win.lift(); key_entry.focus_force(); parent.wait_window(win)
     return result[0] if result else None
