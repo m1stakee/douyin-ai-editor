@@ -12,7 +12,15 @@ from asr import prepared_asr_audio, transcribe, transcribe_request_config, segme
 from media import fixed_scenes
 from ai import validate_plan
 from task_store import TaskStore
+from license_client import verify_license
 class TestCore(unittest.TestCase):
+    @patch("license_client.requests.post")
+    def test_license_verification_posts_to_server(self, post):
+        post.return_value.json.return_value={"valid":True,"message":"授权验证成功"}
+        valid,message=verify_license("https://license.example.com/","VF-TEST-KEY")
+        self.assertTrue(valid); self.assertEqual(message,"授权验证成功")
+        self.assertEqual(post.call_args.args[0],"https://license.example.com/api/license/verify")
+        self.assertEqual(post.call_args.kwargs["json"]["license_key"],"VF-TEST-KEY")
     def test_task_store_persists_items_and_marks_running_tasks_interrupted(self):
         from tempfile import TemporaryDirectory
         with TemporaryDirectory() as folder:
