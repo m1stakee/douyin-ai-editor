@@ -11,7 +11,7 @@ from batch_service import run_batch
 from app_config import save_settings, load_settings
 from asr import prepared_asr_audio, transcribe, transcribe_request_config, segments_to_srt, segments_to_text
 from media import fixed_scenes
-from ai import validate_plan
+from ai import rewrite_text, validate_plan
 from task_store import TaskStore
 from license_client import verify_license, verify_saved_license
 class TestCore(unittest.TestCase):
@@ -47,6 +47,16 @@ class TestCore(unittest.TestCase):
             path=Path(folder)/"task_history.local.json"
             store=TaskStore(path); store.create("transcribe","文案与 SRT","D:/out",[{"path":"D:/out/a.mp4"}])
             self.assertNotIn("api_key",path.read_text(encoding="utf-8"))
+
+    @patch("ai.requests.post")
+    def test_bailian_rewrite_sends_only_prompt_and_transcript_text(self, post):
+        post.return_value.json.return_value={"choices":[{"message":{"content":"改写结果"}}]}
+        result=rewrite_text("转录正文","改写提示", "secret-key", "qwen-plus")
+        self.assertEqual(result,"改写结果")
+        self.assertEqual(post.call_args.args[0],"https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions")
+        messages=post.call_args.kwargs["json"]["messages"]
+        self.assertEqual(messages,[{"role":"system","content":"改写提示"},{"role":"user","content":"转录正文"}])
+        self.assertEqual(post.call_args.kwargs["json"]["model"],"qwen-plus")
 
     def test_extract(self): self.assertEqual(extract_share_url("复制 https://v.douyin.com/abc/ 打开"),"https://v.douyin.com/abc/")
     def test_extract_multiple_share_urls(self):
@@ -215,6 +225,14 @@ class TestCore(unittest.TestCase):
             path = Path(folder) / "settings.local.json"
             save_settings(values, path)
             self.assertEqual(load_settings(path), values)
+
+    def test_settings_round_trip_keeps_rewrite_prompt_library(self):
+        from tempfile import TemporaryDirectory
+        with TemporaryDirectory() as folder:
+            path=Path(folder)/"settings.local.json"
+            prompts=[{"name":"口播","text":"保留事实并改写"}]
+            save_settings({"rewrite_prompts":prompts},path)
+            self.assertEqual(load_settings(path)["rewrite_prompts"],prompts)
 
     def test_default_settings_path_uses_stable_local_app_data(self):
         from tempfile import TemporaryDirectory

@@ -12,6 +12,16 @@ def chat(base_url: str, key: str, model: str, system: str, user: str) -> dict:
     content=r.json()["choices"][0]["message"]["content"]
     return json.loads(content)
 
+def rewrite_text(text: str, prompt: str, key: str, model: str) -> str:
+    if not key.strip(): raise ValueError("请先配置阿里云百炼 API Key")
+    if not model.strip(): raise ValueError("请选择百炼模型")
+    body={"model":model,"temperature":0.7,"messages":[{"role":"system","content":prompt.strip()},{"role":"user","content":text.strip()}]}
+    response=requests.post("https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions",headers={"Authorization":f"Bearer {key.strip()}","Content-Type":"application/json"},json=body,timeout=120)
+    response.raise_for_status()
+    content=response.json()["choices"][0]["message"]["content"]
+    if not isinstance(content,str) or not content.strip(): raise ValueError("百炼返回了空文案")
+    return content.strip()
+
 def rewrite(segments, target_language, base_url, key, model, style="自然口播", length="保持原时长"):
     system="你是短视频文案编辑。只返回 JSON，不要 Markdown。字段为 language 和 segments；segments 每项包含 id、source_ids、text、estimated_duration。"
     user=json.dumps({"target_language":target_language,"style":style,"length":length,"segments":segments},ensure_ascii=False)
