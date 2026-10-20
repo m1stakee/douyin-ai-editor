@@ -225,11 +225,14 @@ class TestCore(unittest.TestCase):
             "目标语言",
             "文案风格",
             "文案长度",
+            "FFmpeg",
             "LLM URL",
             "LLM Key",
             "LLM Model",
         ):
             self.assertNotIn(label, build_source)
+        self.assertIn("self.ffmpeg=tk.StringVar(value=asr.resolve_ffmpeg())", source)
+        self.assertNotIn('asr.resolve_ffmpeg(saved.get("ffmpeg")', source)
 
     def test_load_settings_returns_empty_for_invalid_json(self):
         from tempfile import TemporaryDirectory

@@ -54,7 +54,7 @@ def resolve_ffmpeg(configured: str = "") -> str:
     for candidate in candidates:
         if candidate and Path(candidate).is_file():
             return candidate
-    raise FileNotFoundError("未找到内置 ffmpeg.exe；请重新安装软件或在接口与工具配置中选择 FFmpeg")
+    raise FileNotFoundError("未找到内置 ffmpeg.exe，请重新安装软件")
 
 
 @contextmanager
