@@ -40,5 +40,7 @@ def require_license(parent, license_key: str) -> str | None:
         status.set('正在验证…'); win.update_idletasks(); valid,message=verify_license(LICENSE_SERVER_URL,key)
         if valid: result.append(key); win.destroy()
         else: status.set(message)
-    ttk.Button(frame,text='验证并进入',command=submit).pack(anchor='e',pady=(8,0)); win.bind('<Return>',lambda _event:submit()); win.transient(parent); win.grab_set(); key_entry.focus_set(); parent.wait_window(win)
+    ttk.Button(frame,text='验证并进入',command=submit).pack(anchor='e',pady=(8,0)); win.bind('<Return>',lambda _event:submit())
+    win.update_idletasks(); x=(win.winfo_screenwidth()-win.winfo_width())//2; y=(win.winfo_screenheight()-win.winfo_height())//2; win.geometry(f'+{x}+{y}')
+    win.attributes('-topmost',True); win.after(400,lambda:win.winfo_exists() and win.attributes('-topmost',False)); win.grab_set(); win.lift(); key_entry.focus_force(); parent.wait_window(win)
     return result[0] if result else None
