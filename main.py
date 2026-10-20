@@ -25,8 +25,9 @@ class App(tk.Tk):
         self.after(50, self._authorize_startup)
         self.protocol("WM_DELETE_WINDOW",self.close_app)
     def _authorize_startup(self):
+        self.deiconify(); self.update_idletasks()
         result=require_license(self, self.license_key.get())
-        if not result: self.destroy(); return
+        if not result: self.exit_process(); return
         self.license_key.set(result); self.deiconify()
     def _setup_style(self):
         style=ttk.Style(self); style.theme_use("clam")
@@ -102,7 +103,13 @@ class App(tk.Tk):
         path=save_settings(self.settings_values()); self.status.set("配置已保存")
         if notify: messagebox.showinfo("保存配置",f"全部配置已保存到本机：{path.name}")
     def close_app(self):
-        self.save_all_settings(False); self.destroy()
+        self.save_all_settings(False)
+        for group in (self.batch_controls,self.transcribe_controls):
+            for controls in group.values():
+                for control in controls: control.cancel()
+        self.exit_process()
+    def exit_process(self):
+        self.destroy(); os._exit(0)
     def choose_project(self):
         p=filedialog.askdirectory();
         if p: self.project=Path(p); self.project_text.set(f"输出到：{p}"); self.status.set("输出目录已选择")
