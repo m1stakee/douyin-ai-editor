@@ -13,7 +13,7 @@ class App(tk.Tk):
         super().__init__(); self.title("VideoFlow · 短视频智能工作台"); self.geometry("1180x820"); self.minsize(1000,720); self.configure(bg="#EEF1F5")
         saved=load_settings(); output=saved.get("output_directory",""); self.project=Path(output) if output else None
         self.ffmpeg=tk.StringVar(value=asr.resolve_ffmpeg(saved.get("ffmpeg") or ""))
-        self.download_key=tk.StringVar(value=saved.get("henghengmao_api_key") or henghengmao_key()); self.asr_key=tk.StringVar(value=saved.get("dashscope_api_key") or dashscope_key())
+        self.download_key=tk.StringVar(value=saved.get("henghengmao_api_key", "")); self.asr_key=tk.StringVar(value=saved.get("dashscope_api_key") or dashscope_key())
         self.download_quality=tk.StringVar(value=saved.get("download_quality","推荐")); self.download_workers=tk.StringVar(value=saved.get("download_workers","8")); self.source_lang=tk.StringVar(value=saved.get("source_lang","中文"))
         self.llm_url=tk.StringVar(value=saved.get("llm_url","")); self.llm_key=tk.StringVar(value=saved.get("llm_key","")); self.llm_model=tk.StringVar(value=saved.get("llm_model","gemini-2.5-flash")); self.lang=tk.StringVar(value=saved.get("target_lang","英语"))
         self.style=tk.StringVar(value=saved.get("writing_style","自然口播")); self.length=tk.StringVar(value=saved.get("writing_length","保持原时长"))

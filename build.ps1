@@ -1,5 +1,8 @@
 param()
 $ErrorActionPreference = "Stop"
+$distSettings = Join-Path $PSScriptRoot "dist\settings.local.json"
+$distCredentials = Join-Path $PSScriptRoot "dist\credentials.local.json"
+Remove-Item -LiteralPath $distSettings, $distCredentials -Force -ErrorAction SilentlyContinue
 $vendorDirectory = Join-Path $PSScriptRoot "vendor\ffmpeg"
 $ffmpegPath = Join-Path $vendorDirectory "ffmpeg.exe"
 $licensePath = Join-Path $vendorDirectory "LICENSE"
