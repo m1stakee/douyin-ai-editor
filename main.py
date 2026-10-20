@@ -6,6 +6,7 @@ import downloader_service, media, asr, ai, rename_service
 from batch_service import run_batch
 from app_config import dashscope_key, henghengmao_key, load_settings, save_settings
 from task_store import TaskStore
+from license_client import require_license
 
 class App(tk.Tk):
     def __init__(self):
@@ -16,11 +17,17 @@ class App(tk.Tk):
         self.download_quality=tk.StringVar(value=saved.get("download_quality","推荐")); self.download_workers=tk.StringVar(value=saved.get("download_workers","8")); self.source_lang=tk.StringVar(value=saved.get("source_lang","中文"))
         self.llm_url=tk.StringVar(value=saved.get("llm_url","")); self.llm_key=tk.StringVar(value=saved.get("llm_key","")); self.llm_model=tk.StringVar(value=saved.get("llm_model","gemini-2.5-flash")); self.lang=tk.StringVar(value=saved.get("target_lang","英语"))
         self.style=tk.StringVar(value=saved.get("writing_style","自然口播")); self.length=tk.StringVar(value=saved.get("writing_length","保持原时长"))
+        self.license_key=tk.StringVar(value=saved.get("license_key", ""))
         self.status=tk.StringVar(value="就绪"); self.task_store=TaskStore(); self.task_center_window=None; self.task_center_tree=None; self.batch_task_ids={}; self.transcribe_task_ids={}
         self.project_text=tk.StringVar(value=f"输出到：{self.project}" if self.project else "尚未选择输出目录")
         self._setup_style()
-        self.build()
+        self.withdraw(); self.build()
+        self.after(50, self._authorize_startup)
         self.protocol("WM_DELETE_WINDOW",self.close_app)
+    def _authorize_startup(self):
+        result=require_license(self, self.license_key.get())
+        if not result: self.destroy(); return
+        self.license_key.set(result); self.deiconify()
     def _setup_style(self):
         style=ttk.Style(self); style.theme_use("clam")
         style.configure("TFrame",background="#EEF1F5"); style.configure("Panel.TFrame",background="#FFFFFF")
@@ -71,7 +78,7 @@ class App(tk.Tk):
         self._combo(settings,"视频清晰度",self.download_quality,["推荐","最高","1080P","720P"],2,0); self._combo(settings,"下载并发上限",self.download_workers,["1","2","3","4","5","6","8"],3,0); self._combo(settings,"原声语言",self.source_lang,["中文","英语","日语","韩语","西班牙语","法语","德语"],4,0)
         self._combo(settings,"目标语言",self.lang,["英语","日语","韩语","西班牙语","法语","德语"],8,0); self._combo(settings,"文案风格",self.style,["自然口播","新闻讲解","产品介绍","故事叙述","短视频营销"],9,0); self._combo(settings,"文案长度",self.length,["保持原时长","缩短文案","适当扩展"],10,0)
         self.advanced_button=ttk.Button(settings,text="展开接口与工具配置",command=self.toggle_advanced); self.advanced_button.grid(row=11,column=0,sticky="ew",pady=(9,5))
-        self.advanced=ttk.Frame(settings,style="Panel.TFrame"); self._field(self.advanced,"FFmpeg",self.ffmpeg,0,0,browse=True); self._field(self.advanced,"哼哼猫 Key",self.download_key,1,0,secret=True); self._field(self.advanced,"阿里百炼 Key",self.asr_key,2,0,secret=True); self._field(self.advanced,"LLM URL",self.llm_url,3,0); self._field(self.advanced,"LLM Key",self.llm_key,4,0,secret=True); self._combo(self.advanced,"LLM Model",self.llm_model,["gemini-2.5-flash","gemini-2.5-flash-lite","gpt-4o-mini","qwen-plus","自定义模型"],5,0,editable=True)
+        self.advanced=ttk.Frame(settings,style="Panel.TFrame"); self._field(self.advanced,"软件卡密",self.license_key,0,0,secret=True); self._field(self.advanced,"FFmpeg",self.ffmpeg,1,0,browse=True); self._field(self.advanced,"哼哼猫 Key",self.download_key,2,0,secret=True); self._field(self.advanced,"阿里百炼 Key",self.asr_key,3,0,secret=True); self._field(self.advanced,"LLM URL",self.llm_url,4,0); self._field(self.advanced,"LLM Key",self.llm_key,5,0,secret=True); self._combo(self.advanced,"LLM Model",self.llm_model,["gemini-2.5-flash","gemini-2.5-flash-lite","gpt-4o-mini","qwen-plus","自定义模型"],6,0,editable=True)
         controls=ttk.Frame(settings,style="Panel.TFrame"); controls.grid(row=13,column=0,sticky="ew",pady=(9,0)); ttk.Button(controls,text="批量重命名",command=self.open_rename_window).pack(side="left"); ttk.Button(controls,text="保存全部配置",style="Primary.TButton",command=self.save_all_settings).pack(side="right")
         logs=ttk.Frame(body,style="Panel.TFrame",padding=16); logs.grid(row=1,column=0,columnspan=2,sticky="nsew"); logs.columnconfigure(0,weight=1); logs.rowconfigure(1,weight=1); ttk.Label(logs,text="任务记录",style="Section.TLabel").grid(row=0,column=0,sticky="w",pady=(0,8))
         log_frame=tk.Frame(logs,bg="#182333"); log_frame.grid(row=1,column=0,sticky="nsew"); self.text=tk.Text(log_frame,height=10,wrap="word",font=("Consolas",9),bg="#182333",fg="#D8E0EA",insertbackground="#FFFFFF",relief="flat",padx=12,pady=10); log_scroll=ttk.Scrollbar(log_frame,orient="vertical",command=self.text.yview); self.text.configure(yscrollcommand=log_scroll.set); self.text.pack(side="left",fill="both",expand=True); log_scroll.pack(side="right",fill="y")
@@ -90,7 +97,7 @@ class App(tk.Tk):
         if self.advanced.winfo_manager(): self.advanced.grid_remove(); self.advanced_button.configure(text="展开接口与工具配置")
         else: self.advanced.grid(row=12,column=0,sticky="ew"); self.advanced_button.configure(text="收起接口与工具配置")
     def settings_values(self):
-        return {"output_directory":str(self.project or ""),"download_quality":self.download_quality.get(),"download_workers":self.download_workers.get(),"ffmpeg":self.ffmpeg.get(),"source_lang":self.source_lang.get(),"henghengmao_api_key":self.download_key.get(),"dashscope_api_key":self.asr_key.get(),"llm_url":self.llm_url.get(),"llm_key":self.llm_key.get(),"llm_model":self.llm_model.get(),"target_lang":self.lang.get(),"writing_style":self.style.get(),"writing_length":self.length.get()}
+        return {"output_directory":str(self.project or ""),"download_quality":self.download_quality.get(),"download_workers":self.download_workers.get(),"ffmpeg":self.ffmpeg.get(),"source_lang":self.source_lang.get(),"henghengmao_api_key":self.download_key.get(),"dashscope_api_key":self.asr_key.get(),"llm_url":self.llm_url.get(),"llm_key":self.llm_key.get(),"llm_model":self.llm_model.get(),"target_lang":self.lang.get(),"writing_style":self.style.get(),"writing_length":self.length.get(),"license_key":self.license_key.get()}
     def save_all_settings(self,notify=True):
         path=save_settings(self.settings_values()); self.status.set("配置已保存")
         if notify: messagebox.showinfo("保存配置",f"全部配置已保存到本机：{path.name}")
