@@ -1,5 +1,6 @@
 import unittest
 import json
+import os
 from unittest.mock import Mock, patch
 from pathlib import Path
 from downloader import extract_share_url
@@ -214,6 +215,26 @@ class TestCore(unittest.TestCase):
             path = Path(folder) / "settings.local.json"
             save_settings(values, path)
             self.assertEqual(load_settings(path), values)
+
+    def test_default_settings_path_uses_stable_local_app_data(self):
+        from tempfile import TemporaryDirectory
+        import app_config
+        with TemporaryDirectory() as folder:
+            with patch.dict(os.environ, {"LOCALAPPDATA": folder}):
+                expected = Path(folder) / "VideoFlow" / "settings.local.json"
+                self.assertEqual(app_config.settings_path(), expected)
+
+    def test_legacy_exe_settings_are_migrated_to_local_app_data(self):
+        from tempfile import TemporaryDirectory
+        import app_config
+        with TemporaryDirectory() as local_folder, TemporaryDirectory() as legacy_folder:
+            legacy_path = Path(legacy_folder) / "settings.local.json"
+            legacy_path.write_text(json.dumps({"license_key": "VF-SAVED"}), encoding="utf-8")
+            with patch.dict(os.environ, {"LOCALAPPDATA": local_folder}), patch.object(app_config, "_root", return_value=Path(legacy_folder)):
+                self.assertEqual(app_config.load_settings()["license_key"], "VF-SAVED")
+                saved_path = app_config.save_settings(app_config.load_settings())
+                self.assertEqual(saved_path, Path(local_folder) / "VideoFlow" / "settings.local.json")
+                self.assertEqual(json.loads(saved_path.read_text(encoding="utf-8"))["license_key"], "VF-SAVED")
 
     def test_main_settings_hide_deferred_options(self):
         source = Path(__file__).with_name("main.py").read_text(encoding="utf-8")

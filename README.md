@@ -26,10 +26,10 @@
 1. 软件启动后输入卡密。客户端固定连接授权服务器，不显示也不允许修改服务器地址；验证成功后进入主界面。
 2. 软件已内置 FFmpeg Essentials 精简版，无需另外安装；“FFmpeg”路径选择仅用于手动替换内置版本。
 3. 展开“接口与工具配置”，填写哼哼猫和阿里百炼 Key。
-4. 点击“保存全部配置”。输出目录、处理选项、FFmpeg 和接口配置会在下次启动时自动恢复。
+4. 点击“保存全部配置”。输出目录、处理选项和接口配置会在下次启动时自动恢复；FFmpeg 已内置，无需配置。
 5. 软件正常关闭时也会自动保存当前配置。
 
-全部设置保存在程序同目录的 `settings.local.json`。该文件已加入 `.gitignore`，不会提交到 Git。旧版 `credentials.local.json` 仍可读取，保存新配置后会统一迁移到新配置文件。
+全部设置保存在 `%LOCALAPPDATA%\VideoFlow\settings.local.json`，更换或移动 EXE 后仍会继续使用。旧版程序同目录的 `settings.local.json` 和 `credentials.local.json` 仍可读取，保存配置后会迁移到固定目录。
 
 ## 本地运行
 
