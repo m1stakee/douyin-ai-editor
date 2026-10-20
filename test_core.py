@@ -215,6 +215,22 @@ class TestCore(unittest.TestCase):
             save_settings(values, path)
             self.assertEqual(load_settings(path), values)
 
+    def test_main_settings_hide_deferred_options(self):
+        source = Path(__file__).with_name("main.py").read_text(encoding="utf-8")
+        build_source = source.split("    def build(self):", 1)[1].split(
+            "    def _scroll_main_window", 1
+        )[0]
+        for label in (
+            "下载并发上限",
+            "目标语言",
+            "文案风格",
+            "文案长度",
+            "LLM URL",
+            "LLM Key",
+            "LLM Model",
+        ):
+            self.assertNotIn(label, build_source)
+
     def test_load_settings_returns_empty_for_invalid_json(self):
         from tempfile import TemporaryDirectory
         with TemporaryDirectory() as folder:
