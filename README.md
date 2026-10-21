@@ -40,6 +40,35 @@ python -m pip install -r requirements.txt
 python main.py
 ```
 
+## Azure 文本转语音模块
+
+协作者可以直接调用独立模块 `azure_tts_service.py`。调用者可显式传入 Key、地域、音色和语速：
+
+```python
+from azure_tts_service import available_voices, synthesize_speech
+
+print(available_voices())  # 可用于填充界面音色下拉框
+
+output = synthesize_speech(
+    "你好，这是测试语音。",
+    "output/test.mp3",
+    speech_key="调用者填写的 Key",
+    speech_region="canadacentral",
+    voice="zh-CN-XiaoxiaoNeural",  # 也可传中文标签“晓晓（女）”
+    rate=1.2,
+)
+print(output)
+```
+
+四项参数的含义：
+
+- `speech_key`：调用者填写的 Azure Speech Key
+- `speech_region`：调用者填写的 Azure 地域，例如 `canadacentral`
+- `voice`：调用者选择的音色名称或本模块提供的中文标签
+- `rate`：调用者填写的语速倍率，允许 `0.1`～`3.0`
+
+如果调用者没有传 Key 或地域，模块才会尝试读取 `AZURE_SPEECH_KEY` 和 `AZURE_SPEECH_REGION` 环境变量。批量调用使用 `synthesize_batch()`，每个任务的成功或异常会独立返回，单条失败不会中断整个批次。
+
 ## 构建 Windows EXE
 
 ```powershell
