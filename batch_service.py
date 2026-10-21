@@ -2,6 +2,12 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from collections.abc import Callable, Iterable
 from typing import Any
 
+MAX_TRANSCRIBE_WORKERS = 5
+
+def transcribe_worker_count(item_count: int) -> int:
+    """Keep local audio conversion and ASR uploads bounded per batch."""
+    return min(MAX_TRANSCRIBE_WORKERS, max(1, int(item_count)))
+
 def run_batch(items: Iterable[Any], operation: Callable[[Any], Any], workers: int = 2, on_done: Callable[[int, Any, Any, Exception | None], None] | None = None, retries: int = 3) -> list[tuple[Any, Any, Exception | None]]:
     values = list(items)
     results: list[tuple[Any, Any, Exception | None] | None] = [None] * len(values)

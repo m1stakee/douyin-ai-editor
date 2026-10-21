@@ -7,7 +7,7 @@ from downloader import extract_share_url
 from downloader_service import DownloadControl, DownloadSpec, api_worker_count, download_resolved, download_videos, extract_media_choice, download_video, run_with_fresh_thread_retries, safe_filename, smart_segment_count, worker_count
 from rename_service import rename_media_bundle
 from downloader import extract_share_urls
-from batch_service import run_batch
+from batch_service import run_batch, transcribe_worker_count
 from app_config import save_settings, load_settings
 from asr import prepared_asr_audio, transcribe, transcribe_request_config, segments_to_srt, segments_to_text
 from media import fixed_scenes
@@ -122,6 +122,10 @@ class TestCore(unittest.TestCase):
     def test_api_worker_count_queues_large_batches(self):
         self.assertEqual(api_worker_count(2), 2)
         self.assertEqual(api_worker_count(10), 5)
+
+    def test_transcribe_worker_count_queues_large_batches(self):
+        self.assertEqual(transcribe_worker_count(2), 2)
+        self.assertEqual(transcribe_worker_count(10), 5)
 
     @patch("downloader_service.download_resolved", return_value="D:/out/video.mp4")
     @patch("downloader_service.resolve_video")

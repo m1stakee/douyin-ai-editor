@@ -3,7 +3,7 @@ from pathlib import Path
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
 import downloader_service, media, asr, ai, rename_service
-from batch_service import run_batch
+from batch_service import run_batch, transcribe_worker_count
 from app_config import dashscope_key, henghengmao_key, load_settings, save_settings
 from task_store import TaskStore
 from license_client import require_license, verify_saved_license
@@ -483,7 +483,7 @@ class App(tk.Tk):
         self.open_transcribe_window(batch_id,videos,controls); self.run(lambda:self.transcribe(batch_id,context))
     def transcribe(self,batch_id,context):
         videos=context["videos"]; completed=0
-        effective_workers=len(videos)
+        effective_workers=transcribe_worker_count(len(videos))
         self.log(f"[转写批次 {batch_id}] 已按 {len(videos)} 个视频自动分配 {effective_workers} 个任务线程")
         def operation(item): index,video=item; return self.transcribe_one(batch_id,index,video,context)
         def done(position,item,result,error):
