@@ -21,7 +21,7 @@ from app_config import henghengmao_key
 DEFAULT_API_URL = "https://api.meowload.net/openapi/v1"
 MAX_WORKERS = 16
 DEFAULT_WORKER_LIMIT = 8
-MAX_API_WORKERS = 3
+MAX_API_WORKERS = 5
 DOWNLOAD_SEGMENTS = 4
 SEGMENT_MIN_BYTES = 8 * 1024 * 1024
 MAX_BATCH_MEDIA_CONNECTIONS = 24

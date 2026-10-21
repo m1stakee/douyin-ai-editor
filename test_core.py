@@ -121,7 +121,7 @@ class TestCore(unittest.TestCase):
 
     def test_api_worker_count_queues_large_batches(self):
         self.assertEqual(api_worker_count(2), 2)
-        self.assertEqual(api_worker_count(10), 3)
+        self.assertEqual(api_worker_count(10), 5)
 
     @patch("downloader_service.download_resolved", return_value="D:/out/video.mp4")
     @patch("downloader_service.resolve_video")
@@ -141,7 +141,7 @@ class TestCore(unittest.TestCase):
         urls=[f"https://v.douyin.com/{index}/" for index in range(20)]
         with patch("downloader_service.ThreadPoolExecutor",ImmediatePool):
             download_videos("\n".join(urls),"D:/out",api_key="key",download_workers=2)
-        self.assertEqual(created[0],3)
+        self.assertEqual(created[0],5)
 
     def test_confirmed_failure_destroys_attempt_thread_and_retries_three_times(self):
         calls=[]
