@@ -4,7 +4,7 @@ import os
 from unittest.mock import Mock, patch
 from pathlib import Path
 from downloader import extract_share_url
-from downloader_service import DownloadControl, DownloadSpec, download_resolved, download_videos, extract_media_choice, download_video, run_with_fresh_thread_retries, safe_filename, smart_segment_count, worker_count
+from downloader_service import DownloadControl, DownloadSpec, api_worker_count, download_resolved, download_videos, extract_media_choice, download_video, run_with_fresh_thread_retries, safe_filename, smart_segment_count, worker_count
 from rename_service import rename_media_bundle
 from downloader import extract_share_urls
 from batch_service import run_batch
@@ -119,9 +119,13 @@ class TestCore(unittest.TestCase):
         self.assertEqual(worker_count(30, 8), 8)
         self.assertEqual(worker_count(30, 100), 16)
 
+    def test_api_worker_count_queues_large_batches(self):
+        self.assertEqual(api_worker_count(2), 2)
+        self.assertEqual(api_worker_count(10), 3)
+
     @patch("downloader_service.download_resolved", return_value="D:/out/video.mp4")
     @patch("downloader_service.resolve_video")
-    def test_api_pool_uses_one_thread_per_url_without_limit(self, resolve, _download):
+    def test_api_pool_limits_parallel_requests(self, resolve, _download):
         from concurrent.futures import Future
         created=[]
         class ImmediatePool:
@@ -137,7 +141,7 @@ class TestCore(unittest.TestCase):
         urls=[f"https://v.douyin.com/{index}/" for index in range(20)]
         with patch("downloader_service.ThreadPoolExecutor",ImmediatePool):
             download_videos("\n".join(urls),"D:/out",api_key="key",download_workers=2)
-        self.assertEqual(created[0],20)
+        self.assertEqual(created[0],3)
 
     def test_confirmed_failure_destroys_attempt_thread_and_retries_three_times(self):
         calls=[]

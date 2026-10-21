@@ -288,7 +288,7 @@ class App(tk.Tk):
             if not project: raise ValueError("请先选择项目目录")
             urls=downloader_service.extract_share_urls(input_text);
             if not urls: raise ValueError("请至少输入一条抖音分享链接")
-            api_threads=len(urls); download_threads=downloader_service.worker_count(len(urls),download_workers)
+            api_threads=downloader_service.api_worker_count(len(urls)); download_threads=downloader_service.worker_count(len(urls),download_workers)
             self.log(f"[批次 {batch_id}] 识别到 {len(urls)} 个独立视频 URL，自动分配 {api_threads} 个 API 解析线程、{download_threads} 个下载线程")
             if batch_id==self.latest_batch_id: self.set_status(f"批次 {batch_id}：已识别 {len(urls)} 条链接")
             completed=0

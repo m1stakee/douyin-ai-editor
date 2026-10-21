@@ -21,6 +21,7 @@ from app_config import henghengmao_key
 DEFAULT_API_URL = "https://api.meowload.net/openapi/v1"
 MAX_WORKERS = 16
 DEFAULT_WORKER_LIMIT = 8
+MAX_API_WORKERS = 3
 DOWNLOAD_SEGMENTS = 4
 SEGMENT_MIN_BYTES = 8 * 1024 * 1024
 MAX_BATCH_MEDIA_CONNECTIONS = 24
@@ -379,6 +380,11 @@ def worker_count(item_count: int, limit: int = MAX_WORKERS) -> int:
     return min(MAX_WORKERS, max(1, int(limit)), max(1, int(item_count)))
 
 
+def api_worker_count(item_count: int) -> int:
+    """Limit resolver requests so a batch does not burst the extraction API."""
+    return min(MAX_API_WORKERS, max(1, int(item_count)))
+
+
 def run_with_fresh_thread_retries(operation: Callable[[], Any], retries: int = 3, prefix: str = "task") -> Any:
     """Run each attempt in a new one-shot executor and destroy it before retrying."""
     last_error: Exception | None = None
@@ -402,7 +408,7 @@ def download_videos(inputs: str | Iterable[str], output_dir: str, api_key: str =
     results: list[tuple[str, str | None, Exception | None] | None] = [None] * len(urls)
     download_thread_count = worker_count(len(urls), download_workers)
     with (
-        ThreadPoolExecutor(max_workers=len(urls), thread_name_prefix="douyin-api") as api_pool,
+        ThreadPoolExecutor(max_workers=api_worker_count(len(urls)), thread_name_prefix="douyin-api") as api_pool,
         ThreadPoolExecutor(max_workers=download_thread_count, thread_name_prefix="douyin-download") as download_pool,
     ):
         api_futures = {
