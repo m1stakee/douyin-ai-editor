@@ -1,5 +1,7 @@
 import json, os, shutil, threading
+from datetime import datetime
 from pathlib import Path
+import re
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
 import downloader_service, media, asr, ai, rename_service
@@ -8,14 +10,18 @@ from app_config import dashscope_key, henghengmao_key, load_settings, save_setti
 from task_store import TaskStore
 from license_client import require_license, verify_saved_license
 
-DEFAULT_REWRITE_PROMPTS={"自然口播":"请将文案改写成自然、流畅、适合口播的表达。保留原文事实和核心信息，不添加未经证实的内容。只返回改写后的正文。","卖点浓缩":"请提炼并改写文案，突出最重要的卖点，表达简洁有力。保留原文事实，不添加新信息。只返回改写后的正文。","故事叙述":"请将文案改写成有起承转合、易于听懂的故事化表达。保留原文事实和核心信息，不虚构情节。只返回改写后的正文。","新闻讲解":"请将文案改写成清晰、客观、适合短视频讲解的表达。保留原文事实，不夸大、不添加未经证实的信息。只返回改写后的正文。","轻度去重":"请对文案进行轻度改写，调整措辞和句式以降低重复度，同时完整保留原意、事实和信息顺序。只返回改写后的正文。"}
+DEFAULT_REWRITE_PROMPTS={"自然口播":"请将文案改写成自然、流畅、适合口播的表达。保留原文事实和核心信息，不添加未经证实的内容。只返回改写后的正文。","卖点浓缩":"请提炼并改写文案，突出最重要的卖点，表达简洁有力。保留原文事实，不添加新信息。只返回改写后的正文。","故事叙述":"请将文案改写成有起承转合、易于听懂的故事化表达。保留原文事实和核心信息，不虚构情节。只返回改写后的正文。","新闻讲解":"请将文案改写成清晰、客观、适合短视频讲解的表达。保留原文事实，不夸大、不添加未经证实的信息。只返回改写后的正文。","轻度去重":"请对文案进行轻度改写，调整措辞和句式以降低重复度，同时完整保留原意、事实和信息顺序。只返回改写后的正文。","悬念开场":"请为文案设计一个简短、有吸引力的悬念式开场，再自然衔接正文。保留原文事实，不夸大、不虚构。只返回改写后的完整文案。"}
 
 class App(tk.Tk):
     def __init__(self):
         super().__init__(); self.title("VideoFlow · 短视频智能工作台"); self.geometry("1180x820"); self.minsize(1000,720); self.configure(bg="#EEF1F5")
         saved=load_settings(); output=saved.get("output_directory",""); self.project=Path(output) if output else None
-        stored_prompts=saved.get("rewrite_prompts",[])
-        self.rewrite_prompts=stored_prompts if isinstance(stored_prompts,list) and stored_prompts else [{"name":name,"text":text} for name,text in DEFAULT_REWRITE_PROMPTS.items()]
+        stored_prompts=saved.get("rewrite_prompts")
+        defaults=[{"name":name,"text":text} for name,text in DEFAULT_REWRITE_PROMPTS.items()]
+        self.rewrite_prompts=stored_prompts if isinstance(stored_prompts,list) else defaults
+        if len(self.rewrite_prompts)==5 and all(item.get("name") in DEFAULT_REWRITE_PROMPTS for item in self.rewrite_prompts):
+            missing=[item for item in defaults if item["name"] not in {saved_item.get("name") for saved_item in self.rewrite_prompts}]
+            self.rewrite_prompts.extend(missing)
         # FFmpeg is bundled with the application; ignore any legacy user path.
         self.ffmpeg=tk.StringVar(value=asr.resolve_ffmpeg())
         self.download_key=tk.StringVar(value=saved.get("henghengmao_api_key", "")); self.asr_key=tk.StringVar(value=saved.get("dashscope_api_key") or dashscope_key())
@@ -365,52 +371,105 @@ class App(tk.Tk):
     def open_rewrite_window(self):
         if not self.project:
             messagebox.showinfo("AI 改写","请先选择项目目录",parent=self); return
-        videos=self.transcribed_videos()
-        if not videos:
-            messagebox.showinfo("AI 改写","当前目录没有同时包含同名 TXT 和 SRT 的已转写视频",parent=self); return
-        win=tk.Toplevel(self); win.title("AI 文案改写"); win.geometry("820x700"); win.minsize(680,560)
-        outer=ttk.Frame(win,padding=16); outer.pack(fill="both",expand=True); outer.columnconfigure(0,weight=1); outer.rowconfigure(1,weight=1); outer.rowconfigure(4,weight=1); outer.rowconfigure(7,weight=1)
-        ttk.Label(outer,text="选择已转写视频",style="Section.TLabel").grid(row=0,column=0,sticky="w")
-        list_box=ttk.Frame(outer); list_box.grid(row=1,column=0,sticky="nsew",pady=(7,8)); list_box.columnconfigure(0,weight=1); list_box.rowconfigure(0,weight=1)
-        canvas=tk.Canvas(list_box,height=180,highlightthickness=1,highlightbackground="#D5DCE5",background="#FFFFFF"); canvas.grid(row=0,column=0,sticky="nsew")
-        scroll=ttk.Scrollbar(list_box,orient="vertical",command=canvas.yview); scroll.grid(row=0,column=1,sticky="ns"); canvas.configure(yscrollcommand=scroll.set)
-        rows=ttk.Frame(canvas); window_id=canvas.create_window((0,0),window=rows,anchor="nw")
-        rows.bind("<Configure>",lambda _event:canvas.configure(scrollregion=canvas.bbox("all"))); canvas.bind("<Configure>",lambda event:canvas.itemconfigure(window_id,width=event.width))
-        checks=[]
-        for video in videos:
-            selected=tk.BooleanVar(value=True); ttk.Checkbutton(rows,text=video.name,variable=selected).pack(fill="x",anchor="w",padx=8,pady=3); checks.append((video,selected))
-        select_bar=ttk.Frame(outer); select_bar.grid(row=2,column=0,sticky="ew"); ttk.Button(select_bar,text="全选",command=lambda:[value.set(True) for _,value in checks]).pack(side="left"); ttk.Button(select_bar,text="清空",command=lambda:[value.set(False) for _,value in checks]).pack(side="left",padx=5)
-        prompt_header=ttk.Frame(outer); prompt_header.grid(row=3,column=0,sticky="ew",pady=(12,4)); ttk.Label(prompt_header,text="改写提示词",style="Section.TLabel").pack(side="left")
-        prompt_name=tk.StringVar(value=self.rewrite_prompts[0]["name"] if self.rewrite_prompts else "")
-        prompt_picker=ttk.Combobox(prompt_header,textvariable=prompt_name,state="readonly",values=[item["name"] for item in self.rewrite_prompts],width=22); prompt_picker.pack(side="right",padx=(6,0))
-        ttk.Button(prompt_header,text="提示词管理",command=lambda:self.manage_rewrite_prompts(win,prompt,prompt_name,prompt_picker)).pack(side="right")
-        prompt=tk.Text(outer,height=7,wrap="word",font=("Microsoft YaHei UI",9),bg="#F8FAFC",fg="#203047",relief="flat",padx=9,pady=8); prompt.grid(row=4,column=0,sticky="nsew")
-        def use_prompt(name):
-            item=next((item for item in self.rewrite_prompts if item["name"]==name),None)
-            if item: prompt.delete("1.0","end"); prompt.insert("1.0",item["text"])
-        prompt_picker.bind("<<ComboboxSelected>>",lambda _event:use_prompt(prompt_name.get()))
-        if self.rewrite_prompts: use_prompt(prompt_name.get())
-        preset_bar=ttk.Frame(outer); preset_bar.grid(row=5,column=0,sticky="ew",pady=(6,0))
-        for name,value in DEFAULT_REWRITE_PROMPTS.items(): ttk.Button(preset_bar,text=name,command=lambda text=value:(prompt.delete("1.0","end"),prompt.insert("1.0",text))).pack(side="left",padx=(0,4))
-        options=ttk.Frame(outer); options.grid(row=6,column=0,sticky="ew",pady=(10,0)); model=tk.StringVar(value="qwen-plus")
+        win=tk.Toplevel(self); win.title("AI 文案改写"); win.geometry("900x880"); win.minsize(760,760)
+        outer=ttk.Frame(win,padding=16); outer.pack(fill="both",expand=True); outer.columnconfigure(0,weight=1); outer.rowconfigure(1,minsize=118); outer.rowconfigure(5,minsize=220,weight=3); outer.rowconfigure(6,minsize=120,weight=1); outer.rowconfigure(8,minsize=120,weight=1)
+        entries=[]; current=[0]; loading=[False]
+        prompt_header=ttk.Frame(outer); prompt_header.grid(row=0,column=0,sticky="ew",pady=(0,4)); ttk.Label(prompt_header,text="改写提示词",style="Section.TLabel").pack(side="left")
+        ttk.Button(prompt_header,text="提示词管理",command=lambda:self.manage_rewrite_prompts(win,prompt,refresh_prompt_buttons)).pack(side="right")
+        prompt=tk.Text(outer,height=5,wrap="word",font=("Microsoft YaHei UI",9),bg="#F8FAFC",fg="#203047",relief="flat",padx=9,pady=8); prompt.grid(row=1,column=0,sticky="nsew",pady=(0,3))
+        prompt_buttons=ttk.Frame(outer); prompt_buttons.grid(row=2,column=0,sticky="ew",pady=(6,8))
+        def use_prompt(item):
+            prompt.delete("1.0","end"); prompt.insert("1.0",item["text"])
+        def refresh_prompt_buttons():
+            for button in prompt_buttons.winfo_children(): button.destroy()
+            for index,item in enumerate(self.rewrite_prompts):
+                button=ttk.Button(prompt_buttons,text=item["name"],command=lambda value=item:use_prompt(value))
+                button.grid(row=index//6,column=index%6,sticky="ew",padx=(0,5),pady=(0,4))
+                prompt_buttons.columnconfigure(index%6,weight=1,uniform="prompt")
+        refresh_prompt_buttons()
+        if self.rewrite_prompts: use_prompt(self.rewrite_prompts[0])
+        source_bar=ttk.Frame(outer); source_bar.grid(row=3,column=0,sticky="ew",pady=(0,8)); source_bar.columnconfigure(3,weight=1)
+        ttk.Button(source_bar,text="读取目录 TXT",command=lambda:load_directory()).grid(row=0,column=0,sticky="w")
+        ttk.Button(source_bar,text="导入 TXT（可多选）",command=lambda:import_files()).grid(row=0,column=1,sticky="w",padx=(7,0))
+        clear_all_button=ttk.Button(source_bar,text="一键清空",command=lambda:clear_all()); clear_all_button.grid(row=0,column=2,sticky="w",padx=(7,0))
+        count=tk.StringVar(value="尚未载入文案"); ttk.Label(source_bar,textvariable=count,style="Muted.TLabel").grid(row=0,column=3,sticky="e")
+        title_row=ttk.Frame(outer); title_row.grid(row=4,column=0,sticky="ew",pady=(0,7)); ttk.Label(title_row,text="标题",style="Section.TLabel").pack(side="left")
+        title=tk.StringVar(); title_entry=ttk.Entry(title_row,textvariable=title); title_entry.pack(side="left",fill="x",expand=True,padx=(10,0))
+        editor=ttk.Frame(outer); editor.grid(row=5,column=0,sticky="nsew"); editor.columnconfigure(0,weight=1); editor.rowconfigure(1,weight=1)
+        ttk.Label(editor,text="内容",style="Section.TLabel").grid(row=0,column=0,sticky="w",pady=(0,5))
+        content_box=ttk.Frame(editor); content_box.grid(row=1,column=0,sticky="nsew"); content_box.columnconfigure(0,weight=1); content_box.rowconfigure(0,weight=1)
+        content=tk.Text(content_box,wrap="word",font=("Microsoft YaHei UI",10),bg="#F8FAFC",fg="#203047",relief="flat",padx=10,pady=9); content.grid(row=0,column=0,sticky="nsew")
+        content_scroll=ttk.Scrollbar(content_box,orient="vertical",command=content.yview); content_scroll.grid(row=0,column=1,sticky="ns"); content.configure(yscrollcommand=content_scroll.set)
+        nav=ttk.Frame(content_box); nav.grid(row=0,column=2,sticky="ns",padx=(9,0)); previous_button=ttk.Button(nav,text="上一个",state="disabled",command=lambda:show_entry(current[0]-1)); previous_button.pack(fill="x",pady=(0,5)); next_button=ttk.Button(nav,text="下一个",state="disabled",command=lambda:show_entry(current[0]+1)); next_button.pack(fill="x")
+        output_box=ttk.Frame(outer); output_box.grid(row=6,column=0,sticky="nsew",pady=(10,0)); output_box.columnconfigure(0,weight=1); output_box.rowconfigure(1,weight=1)
+        ttk.Label(output_box,text="改写结果",style="Section.TLabel").grid(row=0,column=0,sticky="w",pady=(0,5))
+        output_text=tk.Text(output_box,wrap="word",font=("Microsoft YaHei UI",10),bg="#F1F5F9",fg="#203047",relief="flat",padx=10,pady=9,state="disabled"); output_text.grid(row=1,column=0,sticky="nsew")
+        output_scroll=ttk.Scrollbar(output_box,orient="vertical",command=output_text.yview); output_scroll.grid(row=1,column=1,sticky="ns"); output_text.configure(yscrollcommand=output_scroll.set)
+        def save_current():
+            text=content.get("1.0","end-1c")
+            if entries and not loading[0] and text.strip(): entries[current[0]].update(title=title.get(),text=text)
+        def show_entry(index):
+            save_current()
+            if not entries: return
+            current[0]=index % len(entries); item=entries[current[0]]; loading[0]=True
+            title.set(item["title"]); content.delete("1.0","end"); content.insert("1.0",item["text"]); loading[0]=False
+            count.set(f"{current[0]+1} / {len(entries)} 篇")
+        def add_files(paths):
+            existing={str(item["path"].resolve()).casefold() for item in entries if item.get("path")}
+            added=[]
+            for path in paths:
+                path=Path(path)
+                if path.suffix.lower()!=".txt" or not path.is_file() or str(path.resolve()).casefold() in existing: continue
+                try: text=path.read_text(encoding="utf-8-sig").strip()
+                except (OSError,UnicodeError) as exc:
+                    messagebox.showwarning("导入 TXT",f"无法读取 {path.name}：{exc}",parent=win); continue
+                if not text: continue
+                entries.append({"path":path,"title":path.stem,"text":text}); existing.add(str(path.resolve()).casefold()); added.append(len(entries)-1)
+            if added: show_entry(added[0])
+            elif not entries: count.set("没有可用的 TXT 文案")
+            if entries: previous_button.configure(state="normal"); next_button.configure(state="normal")
+        def clear_all():
+            save_current(); entries.clear(); current[0]=0; loading[0]=True
+            title.set(""); content.delete("1.0","end"); loading[0]=False
+            count.set("已清空，请重新导入 TXT"); previous_button.configure(state="disabled"); next_button.configure(state="disabled")
+        def load_directory():
+            directory=filedialog.askdirectory(title="选择包含 TXT 文案的目录",initialdir=str(self.project),parent=win)
+            if directory: add_files(sorted(Path(directory).glob("*.txt"),key=lambda path:path.name.casefold()))
+        def import_files():
+            paths=filedialog.askopenfilenames(title="导入 TXT 文案",initialdir=str(self.project),filetypes=[("TXT 文案","*.txt")],parent=win)
+            if paths: add_files(paths)
+        title_entry.bind("<FocusOut>",lambda _event:save_current()); content.bind("<FocusOut>",lambda _event:save_current())
+        options=ttk.Frame(outer); options.grid(row=7,column=0,sticky="ew",pady=(10,0)); model=tk.StringVar(value="qwen-plus")
         ttk.Label(options,text="百炼模型",style="Panel.TLabel").pack(side="left"); ttk.Combobox(options,textvariable=model,state="readonly",values=["qwen-plus","qwen-turbo","qwen-max","qwen-long"],width=22).pack(side="left",padx=7)
         status=tk.StringVar(value="就绪"); ttk.Label(options,textvariable=status,style="Muted.TLabel").pack(side="right")
-        result_box=ttk.Frame(outer); result_box.grid(row=7,column=0,sticky="nsew",pady=(9,0)); result_box.columnconfigure(0,weight=1); result_box.rowconfigure(0,weight=1)
-        result_tree=ttk.Treeview(result_box,columns=("status","output"),show="tree headings",height=5); result_tree.heading("#0",text="视频"); result_tree.heading("status",text="状态"); result_tree.heading("output",text="输出文件"); result_tree.column("#0",width=280); result_tree.column("status",width=120,anchor="center"); result_tree.column("output",width=300); result_tree.grid(row=0,column=0,sticky="nsew")
+        result_box=ttk.Frame(outer); result_box.grid(row=8,column=0,sticky="nsew",pady=(9,0)); result_box.columnconfigure(0,weight=1); result_box.rowconfigure(0,weight=1)
+        result_tree=ttk.Treeview(result_box,columns=("status","output"),show="tree headings",height=4); result_tree.heading("#0",text="标题"); result_tree.heading("status",text="状态"); result_tree.heading("output",text="输出文件"); result_tree.column("#0",width=240); result_tree.column("status",width=100,anchor="center"); result_tree.column("output",width=380); result_tree.grid(row=0,column=0,sticky="nsew")
         result_scroll=ttk.Scrollbar(result_box,orient="vertical",command=result_tree.yview); result_scroll.grid(row=0,column=1,sticky="ns"); result_tree.configure(yscrollcommand=result_scroll.set)
         result_state={}
+        footer=ttk.Frame(outer); footer.grid(row=9,column=0,sticky="ew",pady=(10,0)); footer.columnconfigure(0,weight=1)
+        progress_value=tk.DoubleVar(value=0); progress=ttk.Progressbar(footer,variable=progress_value,maximum=1,mode="determinate"); progress.grid(row=0,column=0,sticky="ew",padx=(0,12))
+        progress_text=tk.StringVar(value="就绪"); ttk.Label(footer,textvariable=progress_text,style="Muted.TLabel",width=14,anchor="e").grid(row=0,column=1,sticky="e",padx=(0,12))
         def begin():
-            chosen=[video for video,value in checks if value.get()]; instruction=prompt.get("1.0","end").strip(); key=self.asr_key.get().strip(); selected_model=model.get()
-            if not chosen: messagebox.showinfo("AI 改写","请至少勾选一个视频",parent=win); return
+            save_current(); chosen=[dict(item) for item in entries]; instruction=prompt.get("1.0","end").strip(); key=self.asr_key.get().strip(); selected_model=model.get()
+            if not chosen: messagebox.showinfo("AI 改写","请先从目录读取或导入 TXT 文案",parent=win); return
             if not instruction: messagebox.showinfo("AI 改写","请填写改写提示词",parent=win); return
             if not key: messagebox.showerror("AI 改写","请先在接口设置中填写阿里云百炼 API Key",parent=win); return
-            for video in chosen: result_tree.insert("","end",iid=str(video),text=video.name,values=("等待中",""))
-            task=self.task_store.create("rewrite",f"AI 改写批次 · {selected_model}",str(self.project),[{"path":str(video),"name":video.name} for video in chosen]); self.task_store.update_task(task["id"],status="运行中")
-            result_state.update(task_id=task["id"],completed=0,success=0,total=len(chosen))
+            output_names=[re.sub(r'[<>:"/\\|?*\x00-\x1f]',"_",item["title"]).strip(" .") for item in chosen]
+            if any(not name for name in output_names):
+                messagebox.showinfo("AI 改写","标题不能为空",parent=win); return
+            batch_time=datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+            output_dir=self.project/"AI改写结果"/f"改写批次_{batch_time}"
+            output_dir.mkdir(parents=True,exist_ok=True)
+            for row in result_tree.get_children(): result_tree.delete(row)
+            for index,item in enumerate(chosen): result_tree.insert("","end",iid=str(index),text=item["title"],values=("等待中",""))
+            task=self.task_store.create("rewrite",f"AI 改写批次 · {selected_model}",str(output_dir),[{"path":str(item["path"]),"name":item["title"]} for item in chosen]); self.task_store.update_task(task["id"],status="运行中")
+            result_state.update(task_id=task["id"],completed=0,success=0,total=len(chosen),progress_lock=threading.Lock())
+            progress.configure(maximum=len(chosen)); progress_value.set(0); progress_text.set(f"0 / {len(chosen)}")
             start_button.configure(state="disabled"); status.set(f"处理中 0/{len(chosen)}")
-            self.run(lambda:self.rewrite_batch(chosen,instruction,key,selected_model,self.project,result_tree,status,start_button,result_state))
-        start_button=ttk.Button(outer,text="开始生成",style="Primary.TButton",command=begin); start_button.grid(row=8,column=0,sticky="e",pady=(10,0))
-    def manage_rewrite_prompts(self,parent,prompt,prompt_name,prompt_picker):
+            self.run(lambda:self.rewrite_batch(chosen,instruction,key,selected_model,output_dir,batch_time,result_tree,status,start_button,result_state,output_text,progress,progress_value,progress_text))
+        start_button=ttk.Button(footer,text="开始生成",style="Primary.TButton",command=begin); start_button.grid(row=0,column=2,sticky="e")
+        add_files(sorted(self.project.glob("*.txt"),key=lambda path:path.name.casefold()))
+    def manage_rewrite_prompts(self,parent,prompt,refresh_buttons):
         win=tk.Toplevel(parent); win.title("改写提示词管理"); win.geometry("760x520"); win.minsize(620,420)
         outer=ttk.Frame(win,padding=14); outer.pack(fill="both",expand=True); outer.columnconfigure(0,weight=1); outer.columnconfigure(1,weight=2); outer.rowconfigure(1,weight=1)
         ttk.Label(outer,text="已保存提示词",style="Section.TLabel").grid(row=0,column=0,sticky="w",pady=(0,7)); ttk.Label(outer,text="提示词内容",style="Section.TLabel").grid(row=0,column=1,sticky="w",padx=(12,0),pady=(0,7))
@@ -430,50 +489,59 @@ class App(tk.Tk):
             label=name.get().strip(); text=content.get("1.0","end").strip()
             if not label or not text: messagebox.showinfo("提示词管理","名称和提示词内容都不能为空",parent=win); return
             selection=listing.curselection(); old=self.rewrite_prompts[selection[0]]["name"] if selection else None
+            if not selection and len(self.rewrite_prompts)>=10: messagebox.showinfo("提示词管理","最多保存 10 个提示词",parent=win); return
             duplicate=next((i for i,item in enumerate(self.rewrite_prompts) if item["name"]==label and item["name"]!=old),None)
             if duplicate is not None: messagebox.showinfo("提示词管理","提示词名称已存在",parent=win); return
             replacement={"name":label,"text":text}
             if selection:self.rewrite_prompts[selection[0]]=replacement; index=selection[0]
             else:self.rewrite_prompts.append(replacement); index=len(self.rewrite_prompts)-1
-            self.save_all_settings(False); refresh(index); prompt_picker.configure(values=[item["name"] for item in self.rewrite_prompts]); prompt_name.set(label)
+            self.save_all_settings(False); refresh(index); refresh_buttons()
         def delete_prompt():
             selection=listing.curselection()
             if not selection:return
-            del self.rewrite_prompts[selection[0]]; self.save_all_settings(False); refresh(min(selection[0],len(self.rewrite_prompts)-1) if self.rewrite_prompts else None)
-            prompt_picker.configure(values=[item["name"] for item in self.rewrite_prompts]); prompt_name.set(self.rewrite_prompts[0]["name"] if self.rewrite_prompts else "")
+            del self.rewrite_prompts[selection[0]]; self.save_all_settings(False); refresh(min(selection[0],len(self.rewrite_prompts)-1) if self.rewrite_prompts else None); refresh_buttons()
         def apply_prompt():
             text=content.get("1.0","end").strip()
             if not text: messagebox.showinfo("提示词管理","请先选择或填写提示词",parent=win); return
             prompt.delete("1.0","end"); prompt.insert("1.0",text)
-            if name.get().strip():prompt_name.set(name.get().strip())
             win.destroy()
         actions=ttk.Frame(outer); actions.grid(row=2,column=0,columnspan=2,sticky="ew",pady=(12,0))
         ttk.Button(actions,text="新建",command=lambda:(listing.selection_clear(0,"end"),name.set("新提示词"),content.delete("1.0","end"))).pack(side="left")
         ttk.Button(actions,text="保存",command=save_prompt).pack(side="left",padx=5); ttk.Button(actions,text="删除",command=delete_prompt).pack(side="left")
         ttk.Button(actions,text="应用到编辑框",style="Primary.TButton",command=apply_prompt).pack(side="right"); refresh(0 if self.rewrite_prompts else None)
-    def rewrite_batch(self,videos,prompt,key,model,project,result_tree,status,start_button,result_state):
+    def rewrite_batch(self,items,prompt,key,model,output_dir,batch_time,result_tree,status,start_button,result_state,output_text,progress,progress_value,progress_text):
         def operation(item):
-            index,video=item; self.task_store.update_item(result_state["task_id"],index,status="改写中")
-            self.after(0,lambda:self._set_rewrite_row(result_tree,video,"改写中"))
+            index,entry=item; label=entry["title"]; self.task_store.update_item(result_state["task_id"],index,status="改写中")
+            self.after(0,lambda:self._set_rewrite_row(result_tree,index,"改写中"))
             try:
-                text=video.with_suffix(".txt").read_text(encoding="utf-8-sig").strip()
+                text=entry["text"].strip()
                 if not text: raise ValueError("转录 TXT 内容为空")
                 rewritten=ai.rewrite_text(text,prompt,key,model)
-                output_dir=project/video.stem; output_dir.mkdir(parents=True,exist_ok=True)
-                output=output_dir/(video.stem+".txt"); output.write_text(rewritten+"\n",encoding="utf-8-sig")
+                safe_title=re.sub(r'[<>:"/\\|?*\x00-\x1f]',"_",label).strip(" .")
+                if not safe_title: raise ValueError("标题不能作为文件名")
+                output=output_dir/f"{safe_title}_{batch_time}_{index+1:02d}.txt"; output.write_text(rewritten+"\n",encoding="utf-8-sig")
                 self.task_store.update_item(result_state["task_id"],index,status="完成",progress=100,output=str(output),error="")
-                self.after(0,lambda:self._set_rewrite_row(result_tree,video,"完成",str(output)))
+                self.after(0,lambda:self._set_rewrite_row(result_tree,index,"完成",str(output)))
+                self.after(0,lambda:self._set_rewrite_output(output_text,label,rewritten))
                 return output
             except Exception as exc:
                 error=str(exc); self.task_store.update_item(result_state["task_id"],index,status="失败",error=error)
-                self.after(0,lambda:self._set_rewrite_row(result_tree,video,f"失败：{error}"))
+                self.after(0,lambda:self._set_rewrite_row(result_tree,index,f"失败：{error}"))
                 raise
-        results=run_batch(list(enumerate(videos)),operation,workers=min(len(videos),8),retries=0)
+            finally:
+                with result_state["progress_lock"]:
+                    result_state["completed"]+=1; completed=result_state["completed"]
+                self.after(0,lambda:self._update_rewrite_progress(progress,progress_value,progress_text,completed,len(items)))
+        results=run_batch(list(enumerate(items)),operation,workers=min(len(items),8),retries=0)
         ok=sum(1 for _,_,error in results if error is None)
-        self.task_store.update_task(result_state["task_id"],status="完成" if ok==len(videos) else "部分失败")
-        self.after(0,lambda:(start_button.configure(state="normal") if start_button.winfo_exists() else None,status.set(f"批次完成：成功 {ok}/{len(videos)}") if status.winfo_exists() else None))
-    def _set_rewrite_row(self,tree,video,state,output=""):
-        if tree.winfo_exists(): tree.item(str(video),values=(state,output))
+        self.task_store.update_task(result_state["task_id"],status="完成" if ok==len(items) else "部分失败")
+        self.after(0,lambda:(start_button.configure(state="normal") if start_button.winfo_exists() else None,status.set(f"批次完成：成功 {ok}/{len(items)}") if status.winfo_exists() else None))
+    def _update_rewrite_progress(self,bar,value,label,completed,total):
+        if bar.winfo_exists(): value.set(completed); label.set(f"{completed} / {total}")
+    def _set_rewrite_row(self,tree,index,state,output=""):
+        if tree.winfo_exists(): tree.item(str(index),values=(state,output))
+    def _set_rewrite_output(self,widget,title,text):
+        if widget.winfo_exists(): widget.configure(state="normal"); widget.delete("1.0","end"); widget.insert("1.0",f"{title}\n\n{text}"); widget.configure(state="disabled")
     def start_transcribe(self):
         if not self.project: self.log("转写失败：请先选择输出目录"); return
         videos=rename_service.list_videos(self.project)
