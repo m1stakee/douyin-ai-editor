@@ -12,14 +12,17 @@ def chat(base_url: str, key: str, model: str, system: str, user: str) -> dict:
     content=r.json()["choices"][0]["message"]["content"]
     return json.loads(content)
 
-def rewrite_text(text: str, prompt: str, key: str, model: str) -> str:
-    if not key.strip(): raise ValueError("请先配置阿里云百炼 API Key")
-    if not model.strip(): raise ValueError("请选择百炼模型")
+def rewrite_text(text: str, prompt: str, key: str, model: str, base_url: str | None = None) -> str:
+    if not key.strip(): raise ValueError("请先配置 API Key")
+    if not model.strip(): raise ValueError("请输入模型名称")
+    url=(base_url or "https://dashscope.aliyuncs.com/compatible-mode/v1").strip().rstrip("/")
+    if not url: raise ValueError("请配置 API 地址")
+    if not url.endswith("/chat/completions"): url += "/chat/completions"
     body={"model":model,"temperature":0.7,"messages":[{"role":"system","content":prompt.strip()},{"role":"user","content":text.strip()}]}
-    response=requests.post("https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions",headers={"Authorization":f"Bearer {key.strip()}","Content-Type":"application/json"},json=body,timeout=120)
+    response=requests.post(url,headers={"Authorization":f"Bearer {key.strip()}","Content-Type":"application/json"},json=body,timeout=120)
     response.raise_for_status()
     content=response.json()["choices"][0]["message"]["content"]
-    if not isinstance(content,str) or not content.strip(): raise ValueError("百炼返回了空文案")
+    if not isinstance(content,str) or not content.strip(): raise ValueError("模型接口返回了空文案")
     return content.strip()
 
 def rewrite(segments, target_language, base_url, key, model, style="自然口播", length="保持原时长"):

@@ -1,4 +1,4 @@
-import json, os, shutil, threading
+import json, os, shutil, threading, time
 from datetime import datetime
 from pathlib import Path
 import re
@@ -11,6 +11,8 @@ from task_store import TaskStore
 from license_client import require_license, verify_saved_license
 
 DEFAULT_REWRITE_PROMPTS={"自然口播":"请将文案改写成自然、流畅、适合口播的表达。保留原文事实和核心信息，不添加未经证实的内容。只返回改写后的正文。","卖点浓缩":"请提炼并改写文案，突出最重要的卖点，表达简洁有力。保留原文事实，不添加新信息。只返回改写后的正文。","故事叙述":"请将文案改写成有起承转合、易于听懂的故事化表达。保留原文事实和核心信息，不虚构情节。只返回改写后的正文。","新闻讲解":"请将文案改写成清晰、客观、适合短视频讲解的表达。保留原文事实，不夸大、不添加未经证实的信息。只返回改写后的正文。","轻度去重":"请对文案进行轻度改写，调整措辞和句式以降低重复度，同时完整保留原意、事实和信息顺序。只返回改写后的正文。","悬念开场":"请为文案设计一个简短、有吸引力的悬念式开场，再自然衔接正文。保留原文事实，不夸大、不虚构。只返回改写后的完整文案。"}
+OPENAI_COMPAT_URL="https://x1api.top/v1"
+OPENAI_COMPAT_MODEL="gpt-6-sol"
 
 class App(tk.Tk):
     def __init__(self):
@@ -26,7 +28,7 @@ class App(tk.Tk):
         self.ffmpeg=tk.StringVar(value=asr.resolve_ffmpeg())
         self.download_key=tk.StringVar(value=saved.get("henghengmao_api_key", "")); self.asr_key=tk.StringVar(value=saved.get("dashscope_api_key") or dashscope_key())
         self.download_quality=tk.StringVar(value=saved.get("download_quality","推荐")); self.download_workers=tk.StringVar(value=saved.get("download_workers","8")); self.source_lang=tk.StringVar(value=saved.get("source_lang","中文"))
-        self.llm_url=tk.StringVar(value=saved.get("llm_url","")); self.llm_key=tk.StringVar(value=saved.get("llm_key","")); self.llm_model=tk.StringVar(value=saved.get("llm_model","gemini-2.5-flash")); self.lang=tk.StringVar(value=saved.get("target_lang","英语"))
+        self.llm_key=tk.StringVar(value=saved.get("llm_key","")); self.lang=tk.StringVar(value=saved.get("target_lang","英语"))
         self.style=tk.StringVar(value=saved.get("writing_style","自然口播")); self.length=tk.StringVar(value=saved.get("writing_length","保持原时长"))
         self.license_key=tk.StringVar(value=saved.get("license_key", ""))
         self.status=tk.StringVar(value="就绪"); self.task_store=TaskStore(); self.task_center_window=None; self.task_center_tree=None; self.batch_task_ids={}; self.transcribe_task_ids={}
@@ -90,7 +92,7 @@ class App(tk.Tk):
         ttk.Label(settings,text="处理设置",style="Section.TLabel").grid(row=0,column=0,sticky="w"); ttk.Label(settings,text="保存后下次启动自动恢复",style="Muted.TLabel").grid(row=1,column=0,sticky="w",pady=(3,9))
         self._combo(settings,"视频清晰度",self.download_quality,["推荐","最高","1080P","720P"],2,0); self._combo(settings,"原声语言",self.source_lang,["中文","英语","日语","韩语","西班牙语","法语","德语"],3,0)
         self.advanced_button=ttk.Button(settings,text="展开接口与工具配置",command=self.toggle_advanced); self.advanced_button.grid(row=4,column=0,sticky="ew",pady=(9,5))
-        self.advanced=ttk.Frame(settings,style="Panel.TFrame"); self._field(self.advanced,"软件卡密",self.license_key,0,0,secret=True); self._field(self.advanced,"哼哼猫 Key",self.download_key,1,0,secret=True); self._field(self.advanced,"阿里百炼 Key",self.asr_key,2,0,secret=True)
+        self.advanced=ttk.Frame(settings,style="Panel.TFrame"); self._field(self.advanced,"软件卡密",self.license_key,0,0,secret=True); self._field(self.advanced,"哼哼猫 Key",self.download_key,1,0,secret=True); self._field(self.advanced,"阿里百炼 Key",self.asr_key,2,0,secret=True); self._field(self.advanced,"兼容接口 Key",self.llm_key,3,0,secret=True)
         controls=ttk.Frame(settings,style="Panel.TFrame"); controls.grid(row=6,column=0,sticky="ew",pady=(9,0)); ttk.Button(controls,text="批量重命名",command=self.open_rename_window).pack(side="left"); ttk.Button(controls,text="保存全部配置",style="Primary.TButton",command=self.save_all_settings).pack(side="right")
         logs=ttk.Frame(body,style="Panel.TFrame",padding=16); logs.grid(row=1,column=0,columnspan=2,sticky="nsew"); logs.columnconfigure(0,weight=1); logs.rowconfigure(1,weight=1); ttk.Label(logs,text="任务记录",style="Section.TLabel").grid(row=0,column=0,sticky="w",pady=(0,8))
         log_frame=tk.Frame(logs,bg="#182333"); log_frame.grid(row=1,column=0,sticky="nsew"); self.text=tk.Text(log_frame,height=10,wrap="word",font=("Consolas",9),bg="#182333",fg="#D8E0EA",insertbackground="#FFFFFF",relief="flat",padx=12,pady=10); log_scroll=ttk.Scrollbar(log_frame,orient="vertical",command=self.text.yview); self.text.configure(yscrollcommand=log_scroll.set); self.text.pack(side="left",fill="both",expand=True); log_scroll.pack(side="right",fill="y")
@@ -109,7 +111,7 @@ class App(tk.Tk):
         if self.advanced.winfo_manager(): self.advanced.grid_remove(); self.advanced_button.configure(text="展开接口与工具配置")
         else: self.advanced.grid(row=5,column=0,sticky="ew"); self.advanced_button.configure(text="收起接口与工具配置")
     def settings_values(self):
-        return {"output_directory":str(self.project or ""),"download_quality":self.download_quality.get(),"download_workers":self.download_workers.get(),"source_lang":self.source_lang.get(),"henghengmao_api_key":self.download_key.get(),"dashscope_api_key":self.asr_key.get(),"llm_url":self.llm_url.get(),"llm_key":self.llm_key.get(),"llm_model":self.llm_model.get(),"target_lang":self.lang.get(),"writing_style":self.style.get(),"writing_length":self.length.get(),"license_key":self.license_key.get(),"rewrite_prompts":self.rewrite_prompts}
+        return {"output_directory":str(self.project or ""),"download_quality":self.download_quality.get(),"download_workers":self.download_workers.get(),"source_lang":self.source_lang.get(),"henghengmao_api_key":self.download_key.get(),"dashscope_api_key":self.asr_key.get(),"llm_key":self.llm_key.get(),"target_lang":self.lang.get(),"writing_style":self.style.get(),"writing_length":self.length.get(),"license_key":self.license_key.get(),"rewrite_prompts":self.rewrite_prompts}
     def save_all_settings(self,notify=True):
         path=save_settings(self.settings_values()); self.status.set("配置已保存")
         if notify: messagebox.showinfo("保存配置",f"全部配置已保存到本机：{path.name}")
@@ -405,6 +407,7 @@ class App(tk.Tk):
         ttk.Label(output_box,text="改写结果",style="Section.TLabel").grid(row=0,column=0,sticky="w",pady=(0,5))
         output_text=tk.Text(output_box,wrap="word",font=("Microsoft YaHei UI",10),bg="#F1F5F9",fg="#203047",relief="flat",padx=10,pady=9,state="disabled"); output_text.grid(row=1,column=0,sticky="nsew")
         output_scroll=ttk.Scrollbar(output_box,orient="vertical",command=output_text.yview); output_scroll.grid(row=1,column=1,sticky="ns"); output_text.configure(yscrollcommand=output_scroll.set)
+        result_nav=ttk.Frame(output_box); result_nav.grid(row=1,column=2,sticky="ns",padx=(8,0)); previous_result=ttk.Button(result_nav,text="上一个",state="disabled"); previous_result.pack(fill="x",pady=(0,5)); next_result=ttk.Button(result_nav,text="下一个",state="disabled"); next_result.pack(fill="x")
         def save_current():
             text=content.get("1.0","end-1c")
             if entries and not loading[0] and text.strip(): entries[current[0]].update(title=title.get(),text=text)
@@ -439,21 +442,49 @@ class App(tk.Tk):
             paths=filedialog.askopenfilenames(title="导入 TXT 文案",initialdir=str(self.project),filetypes=[("TXT 文案","*.txt")],parent=win)
             if paths: add_files(paths)
         title_entry.bind("<FocusOut>",lambda _event:save_current()); content.bind("<FocusOut>",lambda _event:save_current())
-        options=ttk.Frame(outer); options.grid(row=7,column=0,sticky="ew",pady=(10,0)); model=tk.StringVar(value="qwen-plus")
-        ttk.Label(options,text="百炼模型",style="Panel.TLabel").pack(side="left"); ttk.Combobox(options,textvariable=model,state="readonly",values=["qwen-plus","qwen-turbo","qwen-max","qwen-long"],width=22).pack(side="left",padx=7)
+        options=ttk.Frame(outer); options.grid(row=7,column=0,sticky="ew",pady=(10,0)); provider=tk.StringVar(value="阿里云百炼"); model=tk.StringVar(value="qwen3.7-plus")
+        ttk.Label(options,text="AI 服务",style="Panel.TLabel").pack(side="left"); provider_picker=ttk.Combobox(options,textvariable=provider,state="readonly",values=["阿里云百炼","OpenAI 兼容接口"],width=18); provider_picker.pack(side="left",padx=(7,12))
+        model_label=tk.StringVar(value="模型"); ttk.Label(options,textvariable=model_label,style="Panel.TLabel").pack(side="left"); model_picker=ttk.Combobox(options,textvariable=model,state="readonly",values=["qwen3.7-plus","qwen-plus","qwen-turbo","qwen-max","qwen-long"],width=22); model_picker.pack(side="left",padx=7)
+        def change_provider(_event=None):
+            compatible=provider.get()=="OpenAI 兼容接口"
+            model.set(OPENAI_COMPAT_MODEL if compatible else "qwen3.7-plus"); model_label.set("兼容模型" if compatible else "百炼模型")
+            model_picker.configure(values=[OPENAI_COMPAT_MODEL] if compatible else ["qwen3.7-plus","qwen-plus","qwen-turbo","qwen-max","qwen-long"])
+        provider_picker.bind("<<ComboboxSelected>>",change_provider)
         status=tk.StringVar(value="就绪"); ttk.Label(options,textvariable=status,style="Muted.TLabel").pack(side="right")
         result_box=ttk.Frame(outer); result_box.grid(row=8,column=0,sticky="nsew",pady=(9,0)); result_box.columnconfigure(0,weight=1); result_box.rowconfigure(0,weight=1)
-        result_tree=ttk.Treeview(result_box,columns=("status","output"),show="tree headings",height=4); result_tree.heading("#0",text="标题"); result_tree.heading("status",text="状态"); result_tree.heading("output",text="输出文件"); result_tree.column("#0",width=240); result_tree.column("status",width=100,anchor="center"); result_tree.column("output",width=380); result_tree.grid(row=0,column=0,sticky="nsew")
+        result_tree=ttk.Treeview(result_box,columns=("status","duration","output"),show="tree headings",height=4); result_tree.heading("#0",text="标题"); result_tree.heading("status",text="状态"); result_tree.heading("duration",text="改写时间"); result_tree.heading("output",text="输出文件"); result_tree.column("#0",width=220); result_tree.column("status",width=90,anchor="center"); result_tree.column("duration",width=100,anchor="center"); result_tree.column("output",width=330); result_tree.grid(row=0,column=0,sticky="nsew")
         result_scroll=ttk.Scrollbar(result_box,orient="vertical",command=result_tree.yview); result_scroll.grid(row=0,column=1,sticky="ns"); result_tree.configure(yscrollcommand=result_scroll.set)
         result_state={}
+        def display_result(index):
+            rows=result_tree.get_children()
+            if not rows:return
+            index%=len(rows)
+            item=result_state.get("results",{}).get(index)
+            if item:self._set_rewrite_output(output_text,item["title"],item["text"])
+        def show_result(index):
+            rows=result_tree.get_children()
+            if not rows:return
+            current=int(result_tree.focus() or 0); direction=1 if index>current else -1
+            iid=None
+            for offset in range(1,len(rows)+1):
+                candidate=rows[(current+direction*offset)%len(rows)]
+                state=result_tree.item(candidate,"values")[0]
+                if not state.startswith(("改写中","重试中")):
+                    iid=candidate; break
+            if iid is None:return
+            if result_tree.selection()!=(iid,): result_tree.selection_set(iid)
+            result_tree.focus(iid); result_tree.see(iid); display_result(int(iid))
+        previous_result.configure(command=lambda:show_result(int(result_tree.focus() or 0)-1)); next_result.configure(command=lambda:show_result(int(result_tree.focus() or 0)+1))
+        result_tree.bind("<<TreeviewSelect>>",lambda _event:display_result(int(result_tree.selection()[0])) if result_tree.selection() else None)
         footer=ttk.Frame(outer); footer.grid(row=9,column=0,sticky="ew",pady=(10,0)); footer.columnconfigure(0,weight=1)
         progress_value=tk.DoubleVar(value=0); progress=ttk.Progressbar(footer,variable=progress_value,maximum=1,mode="determinate"); progress.grid(row=0,column=0,sticky="ew",padx=(0,12))
         progress_text=tk.StringVar(value="就绪"); ttk.Label(footer,textvariable=progress_text,style="Muted.TLabel",width=14,anchor="e").grid(row=0,column=1,sticky="e",padx=(0,12))
         def begin():
-            save_current(); chosen=[dict(item) for item in entries]; instruction=prompt.get("1.0","end").strip(); key=self.asr_key.get().strip(); selected_model=model.get()
+            save_current(); chosen=[dict(item) for item in entries]; instruction=prompt.get("1.0","end").strip(); selected_provider=provider.get(); compatible=selected_provider=="OpenAI 兼容接口"
+            key=(self.llm_key.get() if compatible else self.asr_key.get()).strip(); selected_model=OPENAI_COMPAT_MODEL if compatible else model.get().strip(); base_url=OPENAI_COMPAT_URL if compatible else None
             if not chosen: messagebox.showinfo("AI 改写","请先从目录读取或导入 TXT 文案",parent=win); return
             if not instruction: messagebox.showinfo("AI 改写","请填写改写提示词",parent=win); return
-            if not key: messagebox.showerror("AI 改写","请先在接口设置中填写阿里云百炼 API Key",parent=win); return
+            if not key: messagebox.showerror("AI 改写","请先在接口与工具配置中填写所选服务的 API Key",parent=win); return
             output_names=[re.sub(r'[<>:"/\\|?*\x00-\x1f]',"_",item["title"]).strip(" .") for item in chosen]
             if any(not name for name in output_names):
                 messagebox.showinfo("AI 改写","标题不能为空",parent=win); return
@@ -461,12 +492,14 @@ class App(tk.Tk):
             output_dir=self.project/"AI改写结果"/f"改写批次_{batch_time}"
             output_dir.mkdir(parents=True,exist_ok=True)
             for row in result_tree.get_children(): result_tree.delete(row)
-            for index,item in enumerate(chosen): result_tree.insert("","end",iid=str(index),text=item["title"],values=("等待中",""))
-            task=self.task_store.create("rewrite",f"AI 改写批次 · {selected_model}",str(output_dir),[{"path":str(item["path"]),"name":item["title"]} for item in chosen]); self.task_store.update_task(task["id"],status="运行中")
-            result_state.update(task_id=task["id"],completed=0,success=0,total=len(chosen),progress_lock=threading.Lock())
+            for index,item in enumerate(chosen): result_tree.insert("","end",iid=str(index),text=item["title"],values=("等待中","-",""))
+            result_state["results"]={}; result_tree.selection_set("0"); result_tree.focus("0"); self._set_rewrite_output(output_text,chosen[0]["title"],"等待改写...")
+            previous_result.configure(state="disabled"); next_result.configure(state="normal" if len(chosen)>1 else "disabled")
+            task=self.task_store.create("rewrite",f"AI 改写批次 · {selected_provider} · {selected_model}",str(output_dir),[{"path":str(item["path"]),"name":item["title"]} for item in chosen]); self.task_store.update_task(task["id"],status="运行中")
+            result_state.update(task_id=task["id"],completed=0,success=0,total=len(chosen),progress_lock=threading.Lock(),results={})
             progress.configure(maximum=len(chosen)); progress_value.set(0); progress_text.set(f"0 / {len(chosen)}")
             start_button.configure(state="disabled"); status.set(f"处理中 0/{len(chosen)}")
-            self.run(lambda:self.rewrite_batch(chosen,instruction,key,selected_model,output_dir,batch_time,result_tree,status,start_button,result_state,output_text,progress,progress_value,progress_text))
+            self.run(lambda:self.rewrite_batch(chosen,instruction,key,selected_model,base_url,output_dir,batch_time,result_tree,status,start_button,result_state,output_text,progress,progress_value,progress_text))
         start_button=ttk.Button(footer,text="开始生成",style="Primary.TButton",command=begin); start_button.grid(row=0,column=2,sticky="e")
         add_files(sorted(self.project.glob("*.txt"),key=lambda path:path.name.casefold()))
     def manage_rewrite_prompts(self,parent,prompt,refresh_buttons):
@@ -509,24 +542,36 @@ class App(tk.Tk):
         ttk.Button(actions,text="新建",command=lambda:(listing.selection_clear(0,"end"),name.set("新提示词"),content.delete("1.0","end"))).pack(side="left")
         ttk.Button(actions,text="保存",command=save_prompt).pack(side="left",padx=5); ttk.Button(actions,text="删除",command=delete_prompt).pack(side="left")
         ttk.Button(actions,text="应用到编辑框",style="Primary.TButton",command=apply_prompt).pack(side="right"); refresh(0 if self.rewrite_prompts else None)
-    def rewrite_batch(self,items,prompt,key,model,output_dir,batch_time,result_tree,status,start_button,result_state,output_text,progress,progress_value,progress_text):
+    def rewrite_batch(self,items,prompt,key,model,base_url,output_dir,batch_time,result_tree,status,start_button,result_state,output_text,progress,progress_value,progress_text):
+        max_attempts=3
         def operation(item):
-            index,entry=item; label=entry["title"]; self.task_store.update_item(result_state["task_id"],index,status="改写中")
+            index,entry=item; label=entry["title"]; started=time.monotonic(); self.task_store.update_item(result_state["task_id"],index,status="改写中")
             self.after(0,lambda:self._set_rewrite_row(result_tree,index,"改写中"))
             try:
                 text=entry["text"].strip()
                 if not text: raise ValueError("转录 TXT 内容为空")
-                rewritten=ai.rewrite_text(text,prompt,key,model)
+                rewritten=None
+                for attempt in range(1,max_attempts+1):
+                    try:
+                        rewritten=ai.rewrite_text(text,prompt,key,model,base_url)
+                        break
+                    except Exception:
+                        if attempt==max_attempts: raise
+                        retry_status=f"重试中 ({attempt+1}/{max_attempts})"
+                        self.task_store.update_item(result_state["task_id"],index,status=retry_status)
+                        self.after(0,lambda state=retry_status:self._set_rewrite_row(result_tree,index,state))
+                        time.sleep(min(2**attempt,8))
                 safe_title=re.sub(r'[<>:"/\\|?*\x00-\x1f]',"_",label).strip(" .")
                 if not safe_title: raise ValueError("标题不能作为文件名")
                 output=output_dir/f"{safe_title}_{batch_time}_{index+1:02d}.txt"; output.write_text(rewritten+"\n",encoding="utf-8-sig")
-                self.task_store.update_item(result_state["task_id"],index,status="完成",progress=100,output=str(output),error="")
-                self.after(0,lambda:self._set_rewrite_row(result_tree,index,"完成",str(output)))
-                self.after(0,lambda:self._set_rewrite_output(output_text,label,rewritten))
+                elapsed=time.monotonic()-started; result_state["results"][index]={"title":label,"text":rewritten}
+                self.task_store.update_item(result_state["task_id"],index,status="完成",progress=100,output=str(output),error="",duration_seconds=elapsed)
+                self.after(0,lambda:self._set_rewrite_row(result_tree,index,"完成",str(output),elapsed))
+                self.after(0,lambda:self._show_rewrite_result(result_tree,index,output_text,label,rewritten))
                 return output
             except Exception as exc:
-                error=str(exc); self.task_store.update_item(result_state["task_id"],index,status="失败",error=error)
-                self.after(0,lambda:self._set_rewrite_row(result_tree,index,f"失败：{error}"))
+                error=str(exc); elapsed=time.monotonic()-started; result_state["results"][index]={"title":label,"text":f"改写失败\n\n{error}"}; self.task_store.update_item(result_state["task_id"],index,status="失败",error=error,duration_seconds=elapsed)
+                self.after(0,lambda:self._set_rewrite_row(result_tree,index,f"失败：{error}","",elapsed))
                 raise
             finally:
                 with result_state["progress_lock"]:
@@ -538,8 +583,10 @@ class App(tk.Tk):
         self.after(0,lambda:(start_button.configure(state="normal") if start_button.winfo_exists() else None,status.set(f"批次完成：成功 {ok}/{len(items)}") if status.winfo_exists() else None))
     def _update_rewrite_progress(self,bar,value,label,completed,total):
         if bar.winfo_exists(): value.set(completed); label.set(f"{completed} / {total}")
-    def _set_rewrite_row(self,tree,index,state,output=""):
-        if tree.winfo_exists(): tree.item(str(index),values=(state,output))
+    def _set_rewrite_row(self,tree,index,state,output="",duration=None):
+        if tree.winfo_exists(): tree.item(str(index),values=(state,f"{duration:.1f} 秒" if duration is not None else "-",output))
+    def _show_rewrite_result(self,tree,index,widget,title,text):
+        if tree.winfo_exists() and tree.focus()==str(index): self._set_rewrite_output(widget,title,text)
     def _set_rewrite_output(self,widget,title,text):
         if widget.winfo_exists(): widget.configure(state="normal"); widget.delete("1.0","end"); widget.insert("1.0",f"{title}\n\n{text}"); widget.configure(state="disabled")
     def start_transcribe(self):
@@ -565,12 +612,12 @@ class App(tk.Tk):
     def start_rewrite(self): self.run(self.rewrite)
     def rewrite(self):
         try:
-            seg=json.load(open(self.project/"transcript.json",encoding="utf-8")); result=ai.rewrite(seg,self.lang.get(),self.llm_url.get(),self.llm_key.get(),self.llm_model.get(),self.style.get(),self.length.get()); json.dump(result,open(self.project/"rewrite.json","w",encoding="utf-8"),ensure_ascii=False,indent=2); self.log(json.dumps(result,ensure_ascii=False,indent=2)); self.status.set("改写完成")
+            seg=json.load(open(self.project/"transcript.json",encoding="utf-8")); result=ai.rewrite(seg,self.lang.get(),OPENAI_COMPAT_URL,self.llm_key.get(),OPENAI_COMPAT_MODEL,self.style.get(),self.length.get()); json.dump(result,open(self.project/"rewrite.json","w",encoding="utf-8"),ensure_ascii=False,indent=2); self.log(json.dumps(result,ensure_ascii=False,indent=2)); self.status.set("改写完成")
         except Exception as e: self.status.set("失败"); self.log("改写失败："+str(e))
     def start_edit(self): self.run(self.edit)
     def edit(self):
         try:
-            video=str(next((p for p in self.project.glob("*.mp4") if p.name != "edited.mp4"), self.project/"source.mp4")); duration=media.probe_duration(self.ffmpeg.get(),video); scenes=media.fixed_scenes(duration); seg=json.load(open(self.project/"transcript.json",encoding="utf-8")); rewrite=json.load(open(self.project/"rewrite.json",encoding="utf-8")); raw=ai.edit_plan(seg,scenes,rewrite,self.llm_url.get(),self.llm_key.get(),self.llm_model.get()); plan=ai.validate_plan(raw,scenes,rewrite,duration); json.dump(plan,open(self.project/"edit-plan.json","w",encoding="utf-8"),ensure_ascii=False,indent=2); out=str(self.project/"edited.mp4"); media.execute_plan(self.ffmpeg.get(),video,plan,out); self.log(json.dumps(plan,ensure_ascii=False,indent=2)); self.log("成片已导出："+out); self.status.set("剪辑完成")
+            video=str(next((p for p in self.project.glob("*.mp4") if p.name != "edited.mp4"), self.project/"source.mp4")); duration=media.probe_duration(self.ffmpeg.get(),video); scenes=media.fixed_scenes(duration); seg=json.load(open(self.project/"transcript.json",encoding="utf-8")); rewrite=json.load(open(self.project/"rewrite.json",encoding="utf-8")); raw=ai.edit_plan(seg,scenes,rewrite,OPENAI_COMPAT_URL,self.llm_key.get(),OPENAI_COMPAT_MODEL); plan=ai.validate_plan(raw,scenes,rewrite,duration); json.dump(plan,open(self.project/"edit-plan.json","w",encoding="utf-8"),ensure_ascii=False,indent=2); out=str(self.project/"edited.mp4"); media.execute_plan(self.ffmpeg.get(),video,plan,out); self.log(json.dumps(plan,ensure_ascii=False,indent=2)); self.log("成片已导出："+out); self.status.set("剪辑完成")
         except Exception as e: self.status.set("失败"); self.log("剪辑失败："+str(e))
 
 if __name__ == "__main__": App().mainloop()
