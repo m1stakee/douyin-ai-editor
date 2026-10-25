@@ -25,7 +25,7 @@
 
 1. 软件启动后输入卡密。客户端固定连接授权服务器，不显示也不允许修改服务器地址；验证成功后进入主界面。
 2. 软件已内置 FFmpeg Essentials 精简版，无需另外安装；“FFmpeg”路径选择仅用于手动替换内置版本。
-3. 展开“接口与工具配置”，填写哼哼猫、阿里百炼和 ChatGPT 接口 Key。兼容接口固定使用 `https://new-api.aicarb.com/v1` 与 `gpt-6.1-sol`，推理级别为 `low`。
+3. 展开“接口与工具配置”，填写哼哼猫、阿里百炼、豆包 Ark 和 ChatGPT 接口 Key。AI 改写可选择豆包，使用火山方舟 Chat API `https://ark.cn-beijing.volces.com/api/v3/chat/completions` 与模型 `doubao-seed-2-1-pro-260915`；豆包 Key 也可通过 `ARK_API_KEY` 环境变量提供。兼容接口固定使用 `https://new-api.aicarb.com/v1` 与 `gpt-6.1-sol`，推理级别为 `low`。
 4. 点击“保存全部配置”。输出目录、处理选项和接口配置会在下次启动时自动恢复；FFmpeg 已内置，无需配置。
 5. 软件正常关闭时也会自动保存当前配置。
 

@@ -68,6 +68,21 @@ class TestCore(unittest.TestCase):
         self.assertEqual(post.call_args.kwargs["json"]["model"],"gpt-6.1-sol")
         self.assertEqual(post.call_args.kwargs["json"]["reasoning_effort"],"low")
 
+    @patch("ai.requests.post")
+    def test_doubao_rewrite_uses_ark_chat_api(self, post):
+        post.return_value.json.return_value={"choices":[{"message":{"content":"豆包改写结果"}}]}
+        result=rewrite_text("转录正文","改写提示","ark-key","doubao-seed-2-1-pro-260915","https://ark.cn-beijing.volces.com/api/v3")
+        self.assertEqual(result,"豆包改写结果")
+        self.assertEqual(post.call_args.args[0],"https://ark.cn-beijing.volces.com/api/v3/chat/completions")
+        self.assertEqual(post.call_args.kwargs["headers"]["Authorization"],"Bearer ark-key")
+        self.assertEqual(post.call_args.kwargs["json"]["model"],"doubao-seed-2-1-pro-260915")
+        self.assertEqual(post.call_args.kwargs["json"]["thinking"],{"type":"disabled"})
+
+    def test_ark_key_uses_environment_variable(self):
+        import app_config
+        with patch.dict(os.environ, {"ARK_API_KEY":"ark-env-key"}, clear=True):
+            self.assertEqual(app_config.ark_key(), "ark-env-key")
+
     def test_extract(self): self.assertEqual(extract_share_url("复制 https://v.douyin.com/abc/ 打开"),"https://v.douyin.com/abc/")
     def test_extract_multiple_share_urls(self):
         text = "第一条 https://v.douyin.com/abc/\n第二条 https://v.douyin.com/xyz/"

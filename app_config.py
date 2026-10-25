@@ -46,3 +46,4 @@ def credential(env_name: str, file_name: str) -> str:
 
 def henghengmao_key() -> str: return credential("HENGHENGMAO_API_KEY", "henghengmao_api_key")
 def dashscope_key() -> str: return credential("DASHSCOPE_API_KEY", "dashscope_api_key")
+def ark_key() -> str: return credential("ARK_API_KEY", "ark_api_key")

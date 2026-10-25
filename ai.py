@@ -20,6 +20,7 @@ def rewrite_text(text: str, prompt: str, key: str, model: str, base_url: str | N
     if not url: raise ValueError("请配置 API 地址")
     if not url.endswith("/chat/completions"): url += "/chat/completions"
     body={"model":model,"temperature":0.7,"messages":[{"role":"system","content":prompt.strip()},{"role":"user","content":text.strip()}]}
+    if "ark.cn-beijing.volces.com" in url: body["thinking"]={"type":"disabled"}
     if reasoning_effort: body["reasoning_effort"]=reasoning_effort
     response=requests.post(url,headers={"Authorization":f"Bearer {key.strip()}","Content-Type":"application/json"},json=body,timeout=120)
     response.raise_for_status()

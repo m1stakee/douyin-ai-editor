@@ -6,7 +6,7 @@ import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
 import downloader_service, media, asr, ai, rename_service
 from batch_service import run_batch, transcribe_worker_count
-from app_config import dashscope_key, henghengmao_key, load_settings, save_settings
+from app_config import ark_key, dashscope_key, henghengmao_key, load_settings, save_settings
 from task_store import TaskStore
 from license_client import require_license, verify_saved_license
 
@@ -14,6 +14,8 @@ DEFAULT_REWRITE_PROMPTS={"自然口播":"请将文案改写成自然、流畅、
 OPENAI_COMPAT_URL="https://new-api.aicarb.com/v1"
 OPENAI_COMPAT_MODEL="gpt-6.1-sol"
 OPENAI_COMPAT_REASONING_EFFORT="low"
+DOUBAO_API_URL="https://ark.cn-beijing.volces.com/api/v3"
+DOUBAO_MODEL="doubao-seed-2-1-pro-260915"
 
 class App(tk.Tk):
     def __init__(self):
@@ -29,7 +31,7 @@ class App(tk.Tk):
         self.ffmpeg=tk.StringVar(value=asr.resolve_ffmpeg())
         self.download_key=tk.StringVar(value=saved.get("henghengmao_api_key", "")); self.asr_key=tk.StringVar(value=saved.get("dashscope_api_key") or dashscope_key())
         self.download_quality=tk.StringVar(value=saved.get("download_quality","推荐")); self.download_workers=tk.StringVar(value=saved.get("download_workers","8")); self.source_lang=tk.StringVar(value=saved.get("source_lang","中文"))
-        self.llm_key=tk.StringVar(value=saved.get("llm_key","")); self.lang=tk.StringVar(value=saved.get("target_lang","英语"))
+        self.llm_key=tk.StringVar(value=saved.get("llm_key","")); self.ark_key=tk.StringVar(value=saved.get("ark_api_key") or ark_key()); self.lang=tk.StringVar(value=saved.get("target_lang","英语"))
         self.style=tk.StringVar(value=saved.get("writing_style","自然口播")); self.length=tk.StringVar(value=saved.get("writing_length","保持原时长"))
         self.license_key=tk.StringVar(value=saved.get("license_key", ""))
         self.status=tk.StringVar(value="就绪"); self.task_store=TaskStore(); self.task_center_window=None; self.task_center_tree=None; self.batch_task_ids={}; self.transcribe_task_ids={}
@@ -93,7 +95,7 @@ class App(tk.Tk):
         ttk.Label(settings,text="处理设置",style="Section.TLabel").grid(row=0,column=0,sticky="w"); ttk.Label(settings,text="保存后下次启动自动恢复",style="Muted.TLabel").grid(row=1,column=0,sticky="w",pady=(3,9))
         self._combo(settings,"视频清晰度",self.download_quality,["推荐","最高","1080P","720P"],2,0); self._combo(settings,"原声语言",self.source_lang,["中文","英语","日语","韩语","西班牙语","法语","德语"],3,0)
         self.advanced_button=ttk.Button(settings,text="展开接口与工具配置",command=self.toggle_advanced); self.advanced_button.grid(row=4,column=0,sticky="ew",pady=(9,5))
-        self.advanced=ttk.Frame(settings,style="Panel.TFrame"); self._field(self.advanced,"软件卡密",self.license_key,0,0,secret=True); self._field(self.advanced,"哼哼猫 Key",self.download_key,1,0,secret=True); self._field(self.advanced,"阿里百炼 Key",self.asr_key,2,0,secret=True); self._field(self.advanced,"ChatGPT 接口 Key",self.llm_key,3,0,secret=True)
+        self.advanced=ttk.Frame(settings,style="Panel.TFrame"); self._field(self.advanced,"软件卡密",self.license_key,0,0,secret=True); self._field(self.advanced,"哼哼猫 Key",self.download_key,1,0,secret=True); self._field(self.advanced,"阿里百炼 Key",self.asr_key,2,0,secret=True); self._field(self.advanced,"ChatGPT 接口 Key",self.llm_key,3,0,secret=True); self._field(self.advanced,"豆包 Ark Key",self.ark_key,4,0,secret=True)
         controls=ttk.Frame(settings,style="Panel.TFrame"); controls.grid(row=6,column=0,sticky="ew",pady=(9,0)); ttk.Button(controls,text="批量重命名",command=self.open_rename_window).pack(side="left"); ttk.Button(controls,text="保存全部配置",style="Primary.TButton",command=self.save_all_settings).pack(side="right")
         logs=ttk.Frame(body,style="Panel.TFrame",padding=16); logs.grid(row=1,column=0,columnspan=2,sticky="nsew"); logs.columnconfigure(0,weight=1); logs.rowconfigure(1,weight=1); ttk.Label(logs,text="任务记录",style="Section.TLabel").grid(row=0,column=0,sticky="w",pady=(0,8))
         log_frame=tk.Frame(logs,bg="#182333"); log_frame.grid(row=1,column=0,sticky="nsew"); self.text=tk.Text(log_frame,height=10,wrap="word",font=("Consolas",9),bg="#182333",fg="#D8E0EA",insertbackground="#FFFFFF",relief="flat",padx=12,pady=10); log_scroll=ttk.Scrollbar(log_frame,orient="vertical",command=self.text.yview); self.text.configure(yscrollcommand=log_scroll.set); self.text.pack(side="left",fill="both",expand=True); log_scroll.pack(side="right",fill="y")
@@ -112,7 +114,7 @@ class App(tk.Tk):
         if self.advanced.winfo_manager(): self.advanced.grid_remove(); self.advanced_button.configure(text="展开接口与工具配置")
         else: self.advanced.grid(row=5,column=0,sticky="ew"); self.advanced_button.configure(text="收起接口与工具配置")
     def settings_values(self):
-        return {"output_directory":str(self.project or ""),"download_quality":self.download_quality.get(),"download_workers":self.download_workers.get(),"source_lang":self.source_lang.get(),"henghengmao_api_key":self.download_key.get(),"dashscope_api_key":self.asr_key.get(),"llm_key":self.llm_key.get(),"target_lang":self.lang.get(),"writing_style":self.style.get(),"writing_length":self.length.get(),"license_key":self.license_key.get(),"rewrite_prompts":self.rewrite_prompts}
+        return {"output_directory":str(self.project or ""),"download_quality":self.download_quality.get(),"download_workers":self.download_workers.get(),"source_lang":self.source_lang.get(),"henghengmao_api_key":self.download_key.get(),"dashscope_api_key":self.asr_key.get(),"llm_key":self.llm_key.get(),"ark_api_key":self.ark_key.get(),"target_lang":self.lang.get(),"writing_style":self.style.get(),"writing_length":self.length.get(),"license_key":self.license_key.get(),"rewrite_prompts":self.rewrite_prompts}
     def save_all_settings(self,notify=True):
         path=save_settings(self.settings_values()); self.status.set("配置已保存")
         if notify: messagebox.showinfo("保存配置",f"全部配置已保存到本机：{path.name}")
@@ -444,12 +446,13 @@ class App(tk.Tk):
             if paths: add_files(paths)
         title_entry.bind("<FocusOut>",lambda _event:save_current()); content.bind("<FocusOut>",lambda _event:save_current())
         options=ttk.Frame(outer); options.grid(row=7,column=0,sticky="ew",pady=(10,0)); provider=tk.StringVar(value="阿里云百炼"); model=tk.StringVar(value="qwen3.7-plus")
-        ttk.Label(options,text="AI 服务",style="Panel.TLabel").pack(side="left"); provider_picker=ttk.Combobox(options,textvariable=provider,state="readonly",values=["阿里云百炼","OpenAI 兼容接口"],width=18); provider_picker.pack(side="left",padx=(7,12))
+        ttk.Label(options,text="AI 服务",style="Panel.TLabel").pack(side="left"); provider_picker=ttk.Combobox(options,textvariable=provider,state="readonly",values=["阿里云百炼","豆包","OpenAI 兼容接口"],width=18); provider_picker.pack(side="left",padx=(7,12))
         model_label=tk.StringVar(value="模型"); ttk.Label(options,textvariable=model_label,style="Panel.TLabel").pack(side="left"); model_picker=ttk.Combobox(options,textvariable=model,state="readonly",values=["qwen3.7-plus","qwen-plus","qwen-turbo","qwen-max","qwen-long"],width=22); model_picker.pack(side="left",padx=7)
         def change_provider(_event=None):
             compatible=provider.get()=="OpenAI 兼容接口"
-            model.set(OPENAI_COMPAT_MODEL if compatible else "qwen3.7-plus"); model_label.set("兼容模型" if compatible else "百炼模型")
-            model_picker.configure(values=[OPENAI_COMPAT_MODEL] if compatible else ["qwen3.7-plus","qwen-plus","qwen-turbo","qwen-max","qwen-long"])
+            doubao=provider.get()=="豆包"
+            model.set(OPENAI_COMPAT_MODEL if compatible else (DOUBAO_MODEL if doubao else "qwen3.7-plus")); model_label.set("兼容模型" if compatible else ("豆包模型" if doubao else "百炼模型"))
+            model_picker.configure(values=[OPENAI_COMPAT_MODEL] if compatible else ([DOUBAO_MODEL] if doubao else ["qwen3.7-plus","qwen-plus","qwen-turbo","qwen-max","qwen-long"]))
         provider_picker.bind("<<ComboboxSelected>>",change_provider)
         status=tk.StringVar(value="就绪"); ttk.Label(options,textvariable=status,style="Muted.TLabel").pack(side="right")
         result_box=ttk.Frame(outer); result_box.grid(row=8,column=0,sticky="nsew",pady=(9,0)); result_box.columnconfigure(0,weight=1); result_box.rowconfigure(0,weight=1)
@@ -481,8 +484,8 @@ class App(tk.Tk):
         progress_value=tk.DoubleVar(value=0); progress=ttk.Progressbar(footer,variable=progress_value,maximum=1,mode="determinate"); progress.grid(row=0,column=0,sticky="ew",padx=(0,12))
         progress_text=tk.StringVar(value="就绪"); ttk.Label(footer,textvariable=progress_text,style="Muted.TLabel",width=14,anchor="e").grid(row=0,column=1,sticky="e",padx=(0,12))
         def begin():
-            save_current(); chosen=[dict(item) for item in entries]; instruction=prompt.get("1.0","end").strip(); selected_provider=provider.get(); compatible=selected_provider=="OpenAI 兼容接口"
-            key=(self.llm_key.get() if compatible else self.asr_key.get()).strip(); selected_model=OPENAI_COMPAT_MODEL if compatible else model.get().strip(); base_url=OPENAI_COMPAT_URL if compatible else None
+            save_current(); chosen=[dict(item) for item in entries]; instruction=prompt.get("1.0","end").strip(); selected_provider=provider.get(); compatible=selected_provider=="OpenAI 兼容接口"; doubao=selected_provider=="豆包"
+            key=(self.llm_key.get() if compatible else (self.ark_key.get() if doubao else self.asr_key.get())).strip(); selected_model=OPENAI_COMPAT_MODEL if compatible else (DOUBAO_MODEL if doubao else model.get().strip()); base_url=OPENAI_COMPAT_URL if compatible else (DOUBAO_API_URL if doubao else None)
             if not chosen: messagebox.showinfo("AI 改写","请先从目录读取或导入 TXT 文案",parent=win); return
             if not instruction: messagebox.showinfo("AI 改写","请填写改写提示词",parent=win); return
             if not key: messagebox.showerror("AI 改写","请先在接口与工具配置中填写所选服务的 API Key",parent=win); return
