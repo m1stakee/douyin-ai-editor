@@ -11,8 +11,9 @@ from task_store import TaskStore
 from license_client import require_license, verify_saved_license
 
 DEFAULT_REWRITE_PROMPTS={"自然口播":"请将文案改写成自然、流畅、适合口播的表达。保留原文事实和核心信息，不添加未经证实的内容。只返回改写后的正文。","卖点浓缩":"请提炼并改写文案，突出最重要的卖点，表达简洁有力。保留原文事实，不添加新信息。只返回改写后的正文。","故事叙述":"请将文案改写成有起承转合、易于听懂的故事化表达。保留原文事实和核心信息，不虚构情节。只返回改写后的正文。","新闻讲解":"请将文案改写成清晰、客观、适合短视频讲解的表达。保留原文事实，不夸大、不添加未经证实的信息。只返回改写后的正文。","轻度去重":"请对文案进行轻度改写，调整措辞和句式以降低重复度，同时完整保留原意、事实和信息顺序。只返回改写后的正文。","悬念开场":"请为文案设计一个简短、有吸引力的悬念式开场，再自然衔接正文。保留原文事实，不夸大、不虚构。只返回改写后的完整文案。"}
-OPENAI_COMPAT_URL="https://x1api.top/v1"
-OPENAI_COMPAT_MODEL="gpt-6-sol"
+OPENAI_COMPAT_URL="https://new-api.aicarb.com/v1"
+OPENAI_COMPAT_MODEL="gpt-6.1-sol"
+OPENAI_COMPAT_REASONING_EFFORT="low"
 
 class App(tk.Tk):
     def __init__(self):
@@ -499,7 +500,8 @@ class App(tk.Tk):
             result_state.update(task_id=task["id"],completed=0,success=0,total=len(chosen),progress_lock=threading.Lock(),results={})
             progress.configure(maximum=len(chosen)); progress_value.set(0); progress_text.set(f"0 / {len(chosen)}")
             start_button.configure(state="disabled"); status.set(f"处理中 0/{len(chosen)}")
-            self.run(lambda:self.rewrite_batch(chosen,instruction,key,selected_model,base_url,output_dir,batch_time,result_tree,status,start_button,result_state,output_text,progress,progress_value,progress_text))
+            reasoning_effort=OPENAI_COMPAT_REASONING_EFFORT if compatible else None
+            self.run(lambda:self.rewrite_batch(chosen,instruction,key,selected_model,base_url,reasoning_effort,output_dir,batch_time,result_tree,status,start_button,result_state,output_text,progress,progress_value,progress_text))
         start_button=ttk.Button(footer,text="开始生成",style="Primary.TButton",command=begin); start_button.grid(row=0,column=2,sticky="e")
         add_files(sorted(self.project.glob("*.txt"),key=lambda path:path.name.casefold()))
     def manage_rewrite_prompts(self,parent,prompt,refresh_buttons):
@@ -542,7 +544,7 @@ class App(tk.Tk):
         ttk.Button(actions,text="新建",command=lambda:(listing.selection_clear(0,"end"),name.set("新提示词"),content.delete("1.0","end"))).pack(side="left")
         ttk.Button(actions,text="保存",command=save_prompt).pack(side="left",padx=5); ttk.Button(actions,text="删除",command=delete_prompt).pack(side="left")
         ttk.Button(actions,text="应用到编辑框",style="Primary.TButton",command=apply_prompt).pack(side="right"); refresh(0 if self.rewrite_prompts else None)
-    def rewrite_batch(self,items,prompt,key,model,base_url,output_dir,batch_time,result_tree,status,start_button,result_state,output_text,progress,progress_value,progress_text):
+    def rewrite_batch(self,items,prompt,key,model,base_url,reasoning_effort,output_dir,batch_time,result_tree,status,start_button,result_state,output_text,progress,progress_value,progress_text):
         max_attempts=3
         def operation(item):
             index,entry=item; label=entry["title"]; started=time.monotonic(); self.task_store.update_item(result_state["task_id"],index,status="改写中")
@@ -553,7 +555,7 @@ class App(tk.Tk):
                 rewritten=None
                 for attempt in range(1,max_attempts+1):
                     try:
-                        rewritten=ai.rewrite_text(text,prompt,key,model,base_url)
+                        rewritten=ai.rewrite_text(text,prompt,key,model,base_url,reasoning_effort)
                         break
                     except Exception:
                         if attempt==max_attempts: raise
@@ -612,12 +614,12 @@ class App(tk.Tk):
     def start_rewrite(self): self.run(self.rewrite)
     def rewrite(self):
         try:
-            seg=json.load(open(self.project/"transcript.json",encoding="utf-8")); result=ai.rewrite(seg,self.lang.get(),OPENAI_COMPAT_URL,self.llm_key.get(),OPENAI_COMPAT_MODEL,self.style.get(),self.length.get()); json.dump(result,open(self.project/"rewrite.json","w",encoding="utf-8"),ensure_ascii=False,indent=2); self.log(json.dumps(result,ensure_ascii=False,indent=2)); self.status.set("改写完成")
+            seg=json.load(open(self.project/"transcript.json",encoding="utf-8")); result=ai.rewrite(seg,self.lang.get(),OPENAI_COMPAT_URL,self.llm_key.get(),OPENAI_COMPAT_MODEL,self.style.get(),self.length.get(),OPENAI_COMPAT_REASONING_EFFORT); json.dump(result,open(self.project/"rewrite.json","w",encoding="utf-8"),ensure_ascii=False,indent=2); self.log(json.dumps(result,ensure_ascii=False,indent=2)); self.status.set("改写完成")
         except Exception as e: self.status.set("失败"); self.log("改写失败："+str(e))
     def start_edit(self): self.run(self.edit)
     def edit(self):
         try:
-            video=str(next((p for p in self.project.glob("*.mp4") if p.name != "edited.mp4"), self.project/"source.mp4")); duration=media.probe_duration(self.ffmpeg.get(),video); scenes=media.fixed_scenes(duration); seg=json.load(open(self.project/"transcript.json",encoding="utf-8")); rewrite=json.load(open(self.project/"rewrite.json",encoding="utf-8")); raw=ai.edit_plan(seg,scenes,rewrite,OPENAI_COMPAT_URL,self.llm_key.get(),OPENAI_COMPAT_MODEL); plan=ai.validate_plan(raw,scenes,rewrite,duration); json.dump(plan,open(self.project/"edit-plan.json","w",encoding="utf-8"),ensure_ascii=False,indent=2); out=str(self.project/"edited.mp4"); media.execute_plan(self.ffmpeg.get(),video,plan,out); self.log(json.dumps(plan,ensure_ascii=False,indent=2)); self.log("成片已导出："+out); self.status.set("剪辑完成")
+            video=str(next((p for p in self.project.glob("*.mp4") if p.name != "edited.mp4"), self.project/"source.mp4")); duration=media.probe_duration(self.ffmpeg.get(),video); scenes=media.fixed_scenes(duration); seg=json.load(open(self.project/"transcript.json",encoding="utf-8")); rewrite=json.load(open(self.project/"rewrite.json",encoding="utf-8")); raw=ai.edit_plan(seg,scenes,rewrite,OPENAI_COMPAT_URL,self.llm_key.get(),OPENAI_COMPAT_MODEL,OPENAI_COMPAT_REASONING_EFFORT); plan=ai.validate_plan(raw,scenes,rewrite,duration); json.dump(plan,open(self.project/"edit-plan.json","w",encoding="utf-8"),ensure_ascii=False,indent=2); out=str(self.project/"edited.mp4"); media.execute_plan(self.ffmpeg.get(),video,plan,out); self.log(json.dumps(plan,ensure_ascii=False,indent=2)); self.log("成片已导出："+out); self.status.set("剪辑完成")
         except Exception as e: self.status.set("失败"); self.log("剪辑失败："+str(e))
 
 if __name__ == "__main__": App().mainloop()

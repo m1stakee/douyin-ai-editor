@@ -61,11 +61,12 @@ class TestCore(unittest.TestCase):
     @patch("ai.requests.post")
     def test_openai_compatible_rewrite_uses_configured_endpoint(self, post):
         post.return_value.json.return_value={"choices":[{"message":{"content":"兼容接口改写结果"}}]}
-        result=rewrite_text("转录正文","改写提示","test-key","gpt-test","https://x1api.top/v1/")
+        result=rewrite_text("转录正文","改写提示","test-key","gpt-6.1-sol","https://new-api.aicarb.com/v1/","low")
         self.assertEqual(result,"兼容接口改写结果")
-        self.assertEqual(post.call_args.args[0],"https://x1api.top/v1/chat/completions")
+        self.assertEqual(post.call_args.args[0],"https://new-api.aicarb.com/v1/chat/completions")
         self.assertEqual(post.call_args.kwargs["json"]["messages"],[{"role":"system","content":"改写提示"},{"role":"user","content":"转录正文"}])
-        self.assertEqual(post.call_args.kwargs["json"]["model"],"gpt-test")
+        self.assertEqual(post.call_args.kwargs["json"]["model"],"gpt-6.1-sol")
+        self.assertEqual(post.call_args.kwargs["json"]["reasoning_effort"],"low")
 
     def test_extract(self): self.assertEqual(extract_share_url("复制 https://v.douyin.com/abc/ 打开"),"https://v.douyin.com/abc/")
     def test_extract_multiple_share_urls(self):
