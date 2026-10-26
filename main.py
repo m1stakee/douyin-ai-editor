@@ -1,10 +1,10 @@
-import json, os, shutil, threading, time
+import json, os, shutil, threading, time, webbrowser
 from datetime import datetime
 from pathlib import Path
 import re
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
-import downloader_service, media, asr, ai, rename_service
+import downloader_service, media, asr, ai, rename_service, voicevox_service
 from batch_service import run_batch, transcribe_worker_count
 from app_config import ark_key, dashscope_key, henghengmao_key, load_settings, save_settings
 from task_store import TaskStore
@@ -34,6 +34,7 @@ class App(tk.Tk):
         self.llm_key=tk.StringVar(value=saved.get("llm_key","")); self.ark_key=tk.StringVar(value=saved.get("ark_api_key") or ark_key()); self.lang=tk.StringVar(value=saved.get("target_lang","英语"))
         self.style=tk.StringVar(value=saved.get("writing_style","自然口播")); self.length=tk.StringVar(value=saved.get("writing_length","保持原时长"))
         self.license_key=tk.StringVar(value=saved.get("license_key", ""))
+        self.voicevox_path=tk.StringVar(value=saved.get("voicevox_path", "")); self.voicevox_voice=tk.StringVar(value=saved.get("voicevox_voice", "")); self.voicevox_speed=tk.StringVar(value=saved.get("voicevox_speed", "1.0")); self.voicevox_pitch=tk.StringVar(value=saved.get("voicevox_pitch", "0.0")); self.voicevox_volume=tk.StringVar(value=saved.get("voicevox_volume", "1.0")); self.voicevox_pause=tk.StringVar(value=saved.get("voicevox_pause", "0.3")); self.voicevox_output_directory=tk.StringVar(value=saved.get("voicevox_output_directory", "")); self.voicevox_output_format=tk.StringVar(value=str(saved.get("voicevox_output_format", "WAV")).upper()); self.voicevox_use_gpu=tk.BooleanVar(value=saved.get("voicevox_use_gpu", False)); self.voicevox_process=None; self.voicevox_process_gpu=None; self.voicevox_window=None
         self.status=tk.StringVar(value="就绪"); self.task_store=TaskStore(); self.task_center_window=None; self.task_center_tree=None; self.batch_task_ids={}; self.transcribe_task_ids={}
         self.project_text=tk.StringVar(value=f"输出到：{self.project}" if self.project else "尚未选择输出目录")
         self._setup_style()
@@ -60,6 +61,8 @@ class App(tk.Tk):
         style.map("TButton",background=[("active","#D8DEE7")])
         style.configure("Primary.TButton",font=("Microsoft YaHei UI",9,"bold"),padding=(14,9),background="#F06449",foreground="#FFFFFF")
         style.map("Primary.TButton",background=[("active","#D95239")])
+        style.configure("Selected.TButton",font=("Microsoft YaHei UI",9,"bold"),padding=(9,5),background="#2C7A65",foreground="#FFFFFF")
+        style.map("Selected.TButton",background=[("active","#236452")])
         style.configure("Flow.TButton",font=("Microsoft YaHei UI",9,"bold"),padding=(13,10),background="#F2F5F8",foreground="#203047")
         style.map("Flow.TButton",background=[("active","#E4EAF1")])
         style.configure("TEntry",padding=7,fieldbackground="#F8FAFC",bordercolor="#D5DCE5"); style.configure("TCombobox",padding=6,fieldbackground="#F8FAFC")
@@ -80,7 +83,7 @@ class App(tk.Tk):
         self.url_text=tk.Text(source,height=8,wrap="word",font=("Microsoft YaHei UI",10),bg="#F8FAFC",fg="#203047",insertbackground="#F06449",relief="flat",padx=11,pady=10,highlightthickness=1,highlightbackground="#D5DCE5",highlightcolor="#F06449"); self.url_text.grid(row=2,column=0,sticky="nsew")
         directory=ttk.Frame(source,style="Panel.TFrame"); directory.grid(row=3,column=0,sticky="ew",pady=(11,0)); ttk.Label(directory,textvariable=self.project_text,style="Muted.TLabel").pack(side="left",fill="x",expand=True); ttk.Button(directory,text="选择目录",command=self.choose_project).pack(side="left",padx=5); ttk.Button(directory,text="打开目录",command=self.open_project).pack(side="left")
         flow=ttk.Frame(source,style="Panel.TFrame"); flow.grid(row=4,column=0,sticky="ew",pady=(14,0))
-        ttk.Button(flow,text="1  下载视频",style="Primary.TButton",command=self.start_download).pack(side="left",padx=(0,7)); ttk.Button(flow,text="2  生成文案与 SRT",style="Flow.TButton",command=self.start_transcribe).pack(side="left",padx=7); ttk.Button(flow,text="3  AI 改写",style="Flow.TButton",command=self.open_rewrite_window).pack(side="left",padx=7)
+        ttk.Button(flow,text="1  下载视频",style="Primary.TButton",command=self.start_download).pack(side="left",padx=(0,7)); ttk.Button(flow,text="2  生成文案与 SRT",style="Flow.TButton",command=self.start_transcribe).pack(side="left",padx=7); ttk.Button(flow,text="3  AI 改写",style="Flow.TButton",command=self.open_rewrite_window).pack(side="left",padx=7); ttk.Button(flow,text="4  语音转出",style="Flow.TButton",command=self.open_voicevox_window).pack(side="left",padx=7)
         self.progress=ttk.Progressbar(source,orient="horizontal",mode="determinate",maximum=100); self.progress.grid(row=5,column=0,sticky="ew",pady=(10,0))
         task_box=ttk.Frame(source,style="Panel.TFrame"); task_box.grid(row=6,column=0,sticky="ew",pady=(9,0)); task_box.columnconfigure(0,weight=1)
         ttk.Label(task_box,text="各视频下载进度",style="Muted.TLabel").grid(row=0,column=0,sticky="w",pady=(0,5))
@@ -114,7 +117,7 @@ class App(tk.Tk):
         if self.advanced.winfo_manager(): self.advanced.grid_remove(); self.advanced_button.configure(text="展开接口与工具配置")
         else: self.advanced.grid(row=5,column=0,sticky="ew"); self.advanced_button.configure(text="收起接口与工具配置")
     def settings_values(self):
-        return {"output_directory":str(self.project or ""),"download_quality":self.download_quality.get(),"download_workers":self.download_workers.get(),"source_lang":self.source_lang.get(),"henghengmao_api_key":self.download_key.get(),"dashscope_api_key":self.asr_key.get(),"llm_key":self.llm_key.get(),"ark_api_key":self.ark_key.get(),"target_lang":self.lang.get(),"writing_style":self.style.get(),"writing_length":self.length.get(),"license_key":self.license_key.get(),"rewrite_prompts":self.rewrite_prompts}
+        return {"output_directory":str(self.project or ""),"download_quality":self.download_quality.get(),"download_workers":self.download_workers.get(),"source_lang":self.source_lang.get(),"henghengmao_api_key":self.download_key.get(),"dashscope_api_key":self.asr_key.get(),"llm_key":self.llm_key.get(),"ark_api_key":self.ark_key.get(),"target_lang":self.lang.get(),"writing_style":self.style.get(),"writing_length":self.length.get(),"license_key":self.license_key.get(),"voicevox_path":self.voicevox_path.get(),"voicevox_voice":self.voicevox_voice.get(),"voicevox_speed":self.voicevox_speed.get(),"voicevox_pitch":self.voicevox_pitch.get(),"voicevox_volume":self.voicevox_volume.get(),"voicevox_pause":self.voicevox_pause.get(),"voicevox_output_directory":self.voicevox_output_directory.get(),"voicevox_output_format":self.voicevox_output_format.get(),"voicevox_use_gpu":self.voicevox_use_gpu.get(),"rewrite_prompts":self.rewrite_prompts}
     def save_all_settings(self,notify=True):
         path=save_settings(self.settings_values()); self.status.set("配置已保存")
         if notify: messagebox.showinfo("保存配置",f"全部配置已保存到本机：{path.name}")
@@ -123,6 +126,7 @@ class App(tk.Tk):
         for group in (self.batch_controls,self.transcribe_controls):
             for controls in group.values():
                 for control in controls: control.cancel()
+        voicevox_service.stop_owned_process(self.voicevox_process)
         self.exit_process()
     def exit_process(self):
         self.destroy(); os._exit(0)
@@ -133,6 +137,214 @@ class App(tk.Tk):
         if not self.project: messagebox.showinfo("打开输出目录","请先选择输出目录"); return
         if not self.project.exists(): messagebox.showerror("打开输出目录","输出目录不存在"); return
         os.startfile(str(self.project))
+    def open_voicevox_window(self):
+        if self.voicevox_window and self.voicevox_window.winfo_exists():
+            self.voicevox_window.deiconify(); self.voicevox_window.lift(); return
+        win=tk.Toplevel(self); win.title("VOICEVOX 本地语音"); win.geometry("800x880"); win.minsize(700,880); win.resizable(True,False); self.voicevox_window=win
+        outer=ttk.Frame(win,padding=16); outer.pack(fill="both",expand=True); outer.columnconfigure(0,weight=1)
+        ttk.Label(outer,text="VOICEVOX 本地语音",style="Section.TLabel").grid(row=0,column=0,sticky="w")
+        ttk.Label(outer,text="用户从官方渠道安装；本软件只连接本机 127.0.0.1，不会把引擎开放到公网。",style="Muted.TLabel").grid(row=1,column=0,sticky="w",pady=(3,9))
+        install_box=ttk.Frame(outer,style="Panel.TFrame",padding=12,height=158); install_box.grid(row=2,column=0,sticky="ew"); install_box.grid_propagate(False); install_box.columnconfigure(1,weight=1)
+        status_var=tk.StringVar(value="未连接"); operation_var=tk.StringVar(value="正在检测本机引擎……")
+        ttk.Label(install_box,text="引擎状态",style="Panel.TLabel",width=11).grid(row=0,column=0,sticky="w"); ttk.Label(install_box,textvariable=status_var,style="Panel.TLabel").grid(row=0,column=1,sticky="w")
+        ttk.Label(install_box,text="安装位置",style="Panel.TLabel",width=11).grid(row=1,column=0,sticky="w",pady=(7,0)); path_entry=ttk.Entry(install_box,textvariable=self.voicevox_path); path_entry.grid(row=1,column=1,sticky="ew",pady=(7,0))
+        install_actions=ttk.Frame(install_box,style="Panel.TFrame"); install_actions.grid(row=2,column=0,columnspan=2,sticky="ew",pady=(9,0))
+        ttk.Button(install_actions,text="打开官方安装页",command=lambda:webbrowser.open(voicevox_service.OFFICIAL_DOWNLOAD_URL)).pack(side="left")
+        def choose_installation():
+            selected=filedialog.askopenfilename(parent=win,title="选择 VOICEVOX.exe 或 vv-engine/run.exe",filetypes=[("VOICEVOX", "*.exe"),("所有文件", "*.*")])
+            if selected: self.voicevox_path.set(selected); self.save_all_settings(False); inspect(False)
+        ttk.Button(install_actions,text="选择安装位置",command=choose_installation).pack(side="left",padx=6)
+        connect_button=ttk.Button(install_actions,text="启动并连接"); connect_button.pack(side="left")
+        exit_engine_button=ttk.Button(install_actions,text="退出引擎"); exit_engine_button.pack(side="left",padx=(6,0))
+        ttk.Label(install_box,text="操作提示",style="Panel.TLabel",width=11).grid(row=3,column=0,sticky="nw",pady=(8,0)); ttk.Label(install_box,textvariable=operation_var,style="Muted.TLabel",wraplength=610).grid(row=3,column=1,sticky="w",pady=(8,0))
+
+        settings_box=ttk.Frame(outer,style="Panel.TFrame",padding=12,height=137); settings_box.grid(row=3,column=0,sticky="ew",pady=10); settings_box.grid_propagate(False); settings_box.columnconfigure(1,weight=1)
+        voice_var=self.voicevox_voice; voice_combo=ttk.Combobox(settings_box,textvariable=voice_var,state="readonly"); voice_combo.grid(row=0,column=1,columnspan=3,sticky="ew")
+        ttk.Label(settings_box,text="音色",style="Panel.TLabel",width=11).grid(row=0,column=0,sticky="w")
+        speed_var=self.voicevox_speed; pitch_var=self.voicevox_pitch; volume_var=self.voicevox_volume
+        for column,(label,var) in enumerate((("语速",speed_var),("音高",pitch_var),("音量",volume_var))):
+            box=ttk.Frame(settings_box,style="Panel.TFrame"); box.grid(row=1,column=column+1,sticky="ew",padx=(0 if column==0 else 7,0),pady=(8,0)); settings_box.columnconfigure(column+1,weight=1)
+            ttk.Label(box,text=label,style="Panel.TLabel").pack(side="left"); ttk.Entry(box,textvariable=var,width=8).pack(side="left",fill="x",expand=True,padx=(5,0))
+        ttk.Label(settings_box,text="参数",style="Panel.TLabel",width=11).grid(row=1,column=0,sticky="w",pady=(8,0))
+        compute_box=ttk.Frame(settings_box,style="Panel.TFrame"); compute_box.grid(row=2,column=0,columnspan=4,sticky="ew",pady=(8,0))
+        ttk.Label(compute_box,text="计算模式",style="Panel.TLabel",width=11).pack(side="left")
+        gpu_mode_text=tk.StringVar(); gpu_button=ttk.Button(compute_box,textvariable=gpu_mode_text,width=14); gpu_button.pack(side="left")
+        ttk.Label(compute_box,text="GPU 推理，CPU 仍负责文本和音频处理",style="Muted.TLabel").pack(side="left",padx=(8,0))
+
+        file_box=ttk.Frame(outer,style="Panel.TFrame",padding=12,height=340); file_box.grid(row=4,column=0,sticky="ew"); file_box.grid_propagate(False); file_box.columnconfigure(0,weight=1); file_box.rowconfigure(2,weight=1)
+        ttk.Label(file_box,text="导入文案文件（支持一次选择多个 TXT）",style="Panel.TLabel").grid(row=0,column=0,sticky="w")
+        file_actions=ttk.Frame(file_box,style="Panel.TFrame"); file_actions.grid(row=1,column=0,sticky="ew",pady=(7,7))
+        file_rows=[]
+        file_canvas=tk.Canvas(file_box,bg="#F8FAFC",relief="flat",highlightthickness=1,highlightbackground="#D5DCE5")
+        file_scroll=ttk.Scrollbar(file_box,orient="vertical",command=file_canvas.yview); file_canvas.configure(yscrollcommand=file_scroll.set)
+        file_canvas.grid(row=2,column=0,sticky="nsew"); file_scroll.grid(row=2,column=1,sticky="ns")
+        file_rows_frame=ttk.Frame(file_canvas,style="Panel.TFrame"); file_rows_window=file_canvas.create_window((0,0),window=file_rows_frame,anchor="nw")
+        file_rows_frame.bind("<Configure>",lambda _event:file_canvas.configure(scrollregion=file_canvas.bbox("all")))
+        file_canvas.bind("<Configure>",lambda event:file_canvas.itemconfigure(file_rows_window,width=event.width))
+        file_count=tk.StringVar(value="尚未导入文案")
+        def refresh_file_count():
+            selected=sum(1 for row in file_rows if row["selected"].get()); file_count.set(f"已选择 {selected} / {len(file_rows)} 个文件")
+        def refresh_script_selection(row):
+            is_selected=row["selected"].get(); row["selection_text"].set("已选择" if is_selected else "未选择")
+            row["selection_button"].configure(style="Selected.TButton" if is_selected else "TButton")
+        def toggle_script_selection(row):
+            row["selected"].set(not row["selected"].get()); refresh_script_selection(row); refresh_file_count()
+        def delete_script_row(row):
+            if row not in file_rows: return
+            file_rows.remove(row); row["frame"].destroy(); refresh_file_count(); operation_var.set(f"已删除：{row['path'].name}")
+        def add_script_row(path):
+            selected_var=tk.BooleanVar(value=True); row_frame=ttk.Frame(file_rows_frame,style="Panel.TFrame",padding=(5,4)); row_frame.pack(fill="x")
+            selection_text=tk.StringVar(); selection_button=ttk.Button(row_frame,textvariable=selection_text,width=8); selection_button.pack(side="left")
+            delete_button=ttk.Button(row_frame,text="删除",width=6); delete_button.pack(side="right")
+            item_progress_text=tk.StringVar(value="0%")
+            ttk.Label(row_frame,textvariable=item_progress_text,style="Muted.TLabel",width=5,anchor="e").pack(side="right",padx=(5,4))
+            item_progress=ttk.Progressbar(row_frame,orient="horizontal",mode="determinate",maximum=100,length=105); item_progress.pack(side="right",padx=(5,0))
+            ttk.Label(row_frame,text=str(path),style="Panel.TLabel").pack(side="left",fill="x",expand=True,padx=(4,8))
+            row={"path":path,"selected":selected_var,"selection_text":selection_text,"selection_button":selection_button,"progress":item_progress,"progress_text":item_progress_text,"frame":row_frame}; file_rows.append(row)
+            selection_button.configure(command=lambda item=row:toggle_script_selection(item)); refresh_script_selection(row)
+            delete_button.configure(command=lambda item=row:delete_script_row(item))
+        def import_scripts():
+            selected=filedialog.askopenfilenames(parent=win,title="导入一个或多个文案",filetypes=[("TXT 文案", "*.txt"),("所有文件", "*.*")])
+            existing={str(row["path"]).casefold() for row in file_rows}; added=0
+            for item in selected:
+                path=Path(item).resolve()
+                if path.suffix.lower()!=".txt" or str(path).casefold() in existing: continue
+                add_script_row(path); existing.add(str(path).casefold()); added+=1
+            if added: refresh_file_count(); operation_var.set(f"已导入 {len(file_rows)} 个文案")
+        def select_all_scripts():
+            for row in file_rows: row["selected"].set(True); refresh_script_selection(row)
+            refresh_file_count()
+        def clear_scripts():
+            for row in list(file_rows): row["frame"].destroy()
+            file_rows.clear(); refresh_file_count(); operation_var.set("文案列表已清除")
+        ttk.Button(file_actions,text="导入文件",command=import_scripts).pack(side="left")
+        ttk.Button(file_actions,text="全选",command=select_all_scripts).pack(side="left",padx=6)
+        ttk.Button(file_actions,text="清除",command=clear_scripts).pack(side="left")
+        ttk.Label(file_actions,textvariable=file_count,style="Muted.TLabel").pack(side="right")
+
+        output_box=ttk.Frame(file_box,style="Panel.TFrame"); output_box.grid(row=3,column=0,columnspan=2,sticky="ew",pady=(9,0)); output_box.columnconfigure(1,weight=1)
+        output_directory_var=self.voicevox_output_directory; output_directory_var.set(output_directory_var.get() or str((self.project or Path.cwd())/"voicevox_output")); pause_var=self.voicevox_pause
+        ttk.Label(output_box,text="保存目录",style="Panel.TLabel",width=11).grid(row=0,column=0,sticky="w"); ttk.Entry(output_box,textvariable=output_directory_var).grid(row=0,column=1,sticky="ew")
+        def choose_output_directory():
+            selected=filedialog.askdirectory(parent=win,title="选择语音和字幕保存目录")
+            if selected: output_directory_var.set(selected); self.save_all_settings(False)
+        ttk.Button(output_box,text="选择",command=choose_output_directory).grid(row=0,column=2,padx=(6,0))
+        def open_output_directory():
+            try:
+                directory=Path(output_directory_var.get()).expanduser().resolve(); directory.mkdir(parents=True,exist_ok=True); os.startfile(str(directory))
+            except Exception as exc: messagebox.showerror("打开目录失败",str(exc),parent=win)
+        ttk.Button(output_box,text="打开目录",command=open_output_directory).grid(row=0,column=3,padx=(6,0))
+        ttk.Label(output_box,text="文件格式",style="Panel.TLabel",width=11).grid(row=1,column=0,sticky="w",pady=(7,0)); format_combo=ttk.Combobox(output_box,textvariable=self.voicevox_output_format,values=("WAV","MP3","M4A","FLAC"),state="readonly",width=10); format_combo.grid(row=1,column=1,sticky="w",pady=(7,0)); format_combo.bind("<<ComboboxSelected>>",lambda _event:self.save_all_settings(False))
+        ttk.Label(output_box,text="句间停顿",style="Panel.TLabel",width=11).grid(row=2,column=0,sticky="w",pady=(7,0)); ttk.Entry(output_box,textvariable=pause_var,width=12).grid(row=2,column=1,sticky="w",pady=(7,0)); ttk.Label(output_box,text="秒（会计入语音时间轴）",style="Muted.TLabel").grid(row=2,column=1,sticky="w",padx=(95,0),pady=(7,0))
+
+        progress_box=ttk.Frame(outer,style="Panel.TFrame",padding=(12,9),height=64); progress_box.grid(row=5,column=0,sticky="ew",pady=(10,0)); progress_box.grid_propagate(False); progress_box.columnconfigure(0,weight=1)
+        progress_text=tk.StringVar(value="等待生成"); progress_percent=tk.StringVar(value="0%")
+        progress_header=ttk.Frame(progress_box,style="Panel.TFrame"); progress_header.grid(row=0,column=0,sticky="ew"); progress_header.columnconfigure(0,weight=1)
+        ttk.Label(progress_header,textvariable=progress_text,style="Panel.TLabel").grid(row=0,column=0,sticky="w"); ttk.Label(progress_header,textvariable=progress_percent,style="Panel.TLabel").grid(row=0,column=1,sticky="e")
+        voicevox_progress=ttk.Progressbar(progress_box,orient="horizontal",mode="determinate",maximum=100); voicevox_progress.grid(row=1,column=0,sticky="ew",pady=(6,0))
+        footer=ttk.Frame(outer,height=55); footer.grid(row=6,column=0,sticky="ew",pady=(10,0)); footer.pack_propagate(False); attribution=tk.StringVar(value="发布内容时请按角色条款标注，例如：VOICEVOX: 青山龍星")
+        ttk.Label(footer,textvariable=attribution,style="Muted.TLabel").pack(side="left"); batch_button=ttk.Button(footer,text="批量生成语音和 SRT",style="Primary.TButton"); batch_button.pack(side="right")
+        voices={}
+        def refresh_gpu_button():
+            enabled=self.voicevox_use_gpu.get(); gpu_mode_text.set("GPU 加速：开" if enabled else "GPU 加速：关")
+            gpu_button.configure(style="Selected.TButton" if enabled else "TButton")
+        def compute_mode_changed():
+            self.save_all_settings(False); voices.clear()
+            if self.voicevox_process is not None:
+                voicevox_service.stop_owned_process(self.voicevox_process); self.voicevox_process=None; self.voicevox_process_gpu=None
+                status_var.set("未连接"); operation_var.set("计算模式已切换，请点击“启动并连接”重启引擎")
+            else:
+                operation_var.set("计算模式已保存；外部引擎需退出后再由本软件启动才能切换")
+        def toggle_gpu_mode():
+            self.voicevox_use_gpu.set(not self.voicevox_use_gpu.get()); refresh_gpu_button(); compute_mode_changed()
+        gpu_button.configure(command=toggle_gpu_mode); refresh_gpu_button()
+        def finish_error(title,exc):
+            operation_var.set(str(exc)); connect_button.configure(state="normal"); batch_button.configure(state="normal"); messagebox.showerror(title,str(exc),parent=win)
+        def exit_engine():
+            process=self.voicevox_process
+            owned=process is not None and process.poll() is None
+            if not owned:
+                self.voicevox_process=None; self.voicevox_process_gpu=None
+                try: external_pid=voicevox_service.find_running_engine_pid()
+                except Exception as exc: finish_error("检测 VOICEVOX 引擎失败",exc); return
+                if external_pid is None:
+                    status_var.set("未连接"); operation_var.set("没有检测到正在运行的 VOICEVOX 引擎"); return
+                if not messagebox.askyesno("退出外部 VOICEVOX 引擎","当前引擎由外部 VOICEVOX 启动。\n\n继续将同时关闭 VOICEVOX 桌面程序及其引擎，未保存的 VOICEVOX 编辑内容可能丢失。\n\n确定继续吗？",parent=win): return
+            connect_button.configure(state="disabled"); exit_engine_button.configure(state="disabled"); batch_button.configure(state="disabled"); operation_var.set("正在退出 VOICEVOX 引擎……")
+            def work():
+                try:
+                    stopped=voicevox_service.stop_engine(process)
+                    if not stopped: raise voicevox_service.VoicevoxError("没有检测到正在运行的 VOICEVOX 引擎")
+                    def finished():
+                        self.voicevox_process=None; self.voicevox_process_gpu=None; voices.clear(); voice_combo.configure(values=())
+                        status_var.set("未连接"); operation_var.set("VOICEVOX 引擎已退出"); connect_button.configure(state="normal"); exit_engine_button.configure(state="normal"); batch_button.configure(state="normal")
+                    self.after(0,finished)
+                except Exception as exc:
+                    self.after(0,lambda e=exc:(exit_engine_button.configure(state="normal"),finish_error("退出 VOICEVOX 引擎失败",e)))
+            self.run(work)
+        exit_engine_button.configure(command=exit_engine)
+        def inspect(start_engine=False):
+            connect_button.configure(state="disabled"); operation_var.set("正在检测本机引擎……")
+            def work():
+                try:
+                    version=voicevox_service.engine_version()
+                    executable=voicevox_service.find_installation(self.voicevox_path.get())
+                    if executable and not self.voicevox_path.get(): self.after(0,lambda:self.voicevox_path.set(str(executable)))
+                    if not version and start_engine:
+                        if not executable: raise voicevox_service.VoicevoxError("尚未检测到 VOICEVOX，请先安装或选择安装位置")
+                        use_gpu=self.voicevox_use_gpu.get()
+                        process=voicevox_service.launch_engine(executable,use_gpu=use_gpu); self.voicevox_process=process; self.voicevox_process_gpu=use_gpu; version=voicevox_service.wait_until_ready()
+                    if not version:
+                        detail="已检测到安装，尚未启动" if executable else "未安装或未检测到安装位置"
+                        self.after(0,lambda:(status_var.set("未连接"),operation_var.set(detail),connect_button.configure(state="normal"))); return
+                    options=voicevox_service.available_voices(); labels=[item.label for item in options]
+                    def connected():
+                        voices.clear(); voices.update({item.label:item for item in options}); voice_combo.configure(values=labels)
+                        preferred=voice_var.get() if voice_var.get() in labels else next((label for label in labels if label.startswith("青山龍星 /")),labels[0]); voice_var.set(preferred)
+                        if self.voicevox_process is not None:
+                            mode="GPU" if self.voicevox_process_gpu else "CPU"
+                            detail=f"{mode} 模式"
+                        else:
+                            detail="外部引擎，实际模式由其启动参数决定"
+                        status_var.set("已连接"); operation_var.set(f"版本 {version}，{detail}，共 {len(options)} 个音色"); connect_button.configure(state="normal")
+                    self.after(0,connected)
+                except Exception as exc: self.after(0,lambda e=exc:(status_var.set("未连接"),finish_error("VOICEVOX 连接失败",e)))
+            self.run(work)
+        connect_button.configure(command=lambda:inspect(True))
+        def generate_batch():
+            option=voices.get(voice_var.get())
+            if not option: messagebox.showinfo("VOICEVOX","请先启动并连接引擎",parent=win); return
+            selected_files=[row["path"] for row in file_rows if row["selected"].get()]
+            if not selected_files: messagebox.showinfo("VOICEVOX","请导入文案并勾选需要生成的文件",parent=win); return
+            progress_rows={str(row["path"]):row for row in file_rows if row["selected"].get()}
+            for row in progress_rows.values(): row["progress"].configure(value=0); row["progress_text"].set("0%")
+            self.save_all_settings(False); batch_button.configure(state="disabled"); operation_var.set("正在准备批量生成……"); voicevox_progress.configure(value=0); progress_percent.set("0%"); progress_text.set(f"准备处理 {len(selected_files)} 个文件")
+            def progress(file_index,file_total,source,sentence_index,sentence_total):
+                value=((file_index-1)+(sentence_index/max(1,sentence_total)))/max(1,file_total)*100
+                item_value=sentence_index/max(1,sentence_total)*100; item_row=progress_rows.get(str(source))
+                def update_progress(v=value,iv=item_value,row=item_row,fi=file_index,ft=file_total,name=source.name,si=sentence_index,st=sentence_total):
+                    voicevox_progress.configure(value=v); progress_percent.set(f"{v:.0f}%"); progress_text.set(f"文件 {fi}/{ft} · {name} · 句子 {si}/{st}"); operation_var.set(f"文件 {fi}/{ft} · {name} · 句子 {si}/{st}")
+                    if row is not None: row["progress"].configure(value=iv); row["progress_text"].set(f"{iv:.0f}%")
+                self.after(0,update_progress)
+            def work():
+                try:
+                    results=voicevox_service.synthesize_script_files(selected_files,output_directory_var.get(),style_id=option.style_id,speed=float(speed_var.get()),pitch=float(pitch_var.get()),volume=float(volume_var.get()),pause_seconds=float(pause_var.get()),output_format=self.voicevox_output_format.get(),ffmpeg_path=asr.resolve_ffmpeg(),on_progress=progress)
+                    success=sum(1 for item in results if item["error"] is None); failed=len(results)-success
+                    def finished():
+                        for item in results:
+                            row=progress_rows.get(str(item["source"]))
+                            if row is not None:
+                                if item["error"] is None: row["progress"].configure(value=100); row["progress_text"].set("100%")
+                                else: row["progress"].configure(value=0); row["progress_text"].set("失败")
+                        voicevox_progress.configure(value=100); progress_percent.set("100%"); progress_text.set(f"生成完成 · 成功 {success}，失败 {failed}"); operation_var.set(f"批量完成：成功 {success}，失败 {failed}"); batch_button.configure(state="normal")
+                        details="\n".join(f"失败：{item['source'].name} · {item['error']}" for item in results if item["error"] is not None)
+                        messagebox.showinfo("VOICEVOX 批量生成",f"共 {len(results)} 个文案\n成功：{success}\n失败：{failed}\n每个文案已生成同名 {self.voicevox_output_format.get()}、SRT 和分段目录。\n输出目录：\n{Path(output_directory_var.get()).resolve()}"+(f"\n\n{details}" if details else "")+f"\n\n使用音频时请标注：VOICEVOX: {option.name}",parent=win)
+                    self.after(0,finished)
+                except Exception as exc: self.after(0,lambda e=exc:finish_error("VOICEVOX 批量生成失败",e))
+            self.run(work)
+        batch_button.configure(command=generate_batch)
+        win.protocol("WM_DELETE_WINDOW",lambda:(self.save_all_settings(False),setattr(self,"voicevox_window",None),win.destroy()))
+        inspect(False)
     def choose_ffmpeg(self):
         p=filedialog.askopenfilename(title="选择 ffmpeg.exe",filetypes=[("FFmpeg", "ffmpeg.exe"), ("所有文件", "*.*")])
         if p: self.ffmpeg.set(p)
