@@ -99,13 +99,16 @@ def execute_srt_cut(ffmpeg: str, video: str, plan: dict, output: str) -> None:
     """Concatenate retained video/audio intervals generated from an SRT plan."""
     clips, filters = [], []
     for i, (start, end) in enumerate(plan["kept"]):
-        filters.append(f"[0:v]trim=start={start:.3f}:end={end:.3f},setpts=PTS-STARTPTS[v{i}]")
-        filters.append(f"[0:a]atrim=start={start:.3f}:end={end:.3f},asetpts=PTS-STARTPTS[a{i}]")
+        # Rebuild timestamps from frame/sample sequence at every cut boundary.
+        # This avoids a stale PTS causing a one-frame flash when concat joins clips.
+        filters.append(f"[0:v]trim=start={start:.3f}:end={end:.3f},settb=AVTB,setpts=N/(FRAME_RATE*TB)[v{i}]")
+        filters.append(f"[0:a]atrim=start={start:.3f}:end={end:.3f},asetpts=N/SR/TB[a{i}]")
         clips.append(f"[v{i}][a{i}]")
     if not clips:
         raise ValueError("没有可保留的视频片段")
-    filters.append("".join(clips) + f"concat=n={len(clips)}:v=1:a=1[outv][outa]")
-    run_ffmpeg(ffmpeg, ["-y", "-i", video, "-filter_complex", ";".join(filters), "-map", "[outv]", "-map", "[outa]", "-c:v", "libx264", "-c:a", "aac", "-pix_fmt", "yuv420p", "-movflags", "+faststart", "-shortest", output])
+    filters.append("".join(clips) + f"concat=n={len(clips)}:v=1:a=1[outv][joined_a]")
+    filters.append("[joined_a]aresample=async=1:first_pts=0[outa]")
+    run_ffmpeg(ffmpeg, ["-y", "-fflags", "+genpts", "-i", video, "-filter_complex", ";".join(filters), "-map", "[outv]", "-map", "[outa]", "-c:v", "libx264", "-preset", "medium", "-crf", "18", "-fps_mode", "cfr", "-c:a", "aac", "-pix_fmt", "yuv420p", "-avoid_negative_ts", "make_zero", "-movflags", "+faststart", "-shortest", output])
 
 
 def write_cut_subtitles(cues, plan: dict, srt_output: str, text_output: str) -> None:
