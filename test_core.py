@@ -10,11 +10,18 @@ from downloader import extract_share_urls
 from batch_service import run_batch, transcribe_worker_count
 from app_config import save_settings, load_settings
 from asr import prepared_asr_audio, transcribe, transcribe_request_config, segments_to_srt, segments_to_text
-from media import fixed_scenes
+from media import fixed_scenes, build_srt_cut_plan
+from voicevox_service import SrtCue
 from ai import rewrite_text, validate_plan
 from task_store import TaskStore
 from license_client import verify_license, verify_saved_license
 class TestCore(unittest.TestCase):
+    def test_srt_cut_plan_has_three_blocks_and_target_ratio(self):
+        cues=[SrtCue(i, (i-1)*10, i*10-1, f"字幕{i}") for i in range(1, 31)]
+        plan=build_srt_cut_plan(cues, 300,[{"start":5,"end":7},{"start":14,"end":16},{"start":23,"end":25}])
+        self.assertGreaterEqual(len(plan["deleted"]), 3)
+        self.assertTrue(0.60 <= plan["kept_seconds"] / 300 <= 0.80)
+        self.assertTrue(all(end > start for start,end,_,_ in plan["deleted"]))
     @patch("license_client.requests.post")
     def test_license_verification_posts_to_server(self, post):
         post.return_value.json.return_value={"valid":True,"message":"授权验证成功"}

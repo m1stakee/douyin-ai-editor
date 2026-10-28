@@ -38,6 +38,19 @@ def edit_plan(segments, scenes, rewrite_result, base_url, key, model, reasoning_
     user=json.dumps({"source_segments":segments,"scenes":scenes,"rewrite":rewrite_result},ensure_ascii=False)
     return chat(base_url,key,model,system,user,reasoning_effort)
 
+def srt_deletion_plan(cues, duration, base_url, key, model, reasoning_effort=None, correction=""):
+    system=("你是解说视频字幕剪辑规划器。只能通过整段删除字幕条目来剪辑，绝不能修改字幕文字。"
+            "成片保留时长必须为原视频的60%到80%；每处删除至少连续3条字幕，整个视频至少3处删除。"
+            "优先保留开头引子、核心观点或结论、关键案例或反转、结尾总结；优先删除重复解释、赘述、口头禅和无信息填充。"
+            "只返回JSON对象，不要Markdown和解释。格式必须为 {\"delete_ranges\":[{\"start\":11,\"end\":20}]}。"
+            "start和end是输入数组中的position，不是SRT原始编号；删除范围不能重叠或相邻。")
+    payload={"video_duration_seconds":duration,"subtitles":[{"position":i,"start":x.start,"end":x.end,"text":x.text} for i,x in enumerate(cues,1)]}
+    if correction: payload["previous_plan_error"]=correction
+    result=chat(base_url,key,model,system,json.dumps(payload,ensure_ascii=False),reasoning_effort)
+    ranges=result.get("delete_ranges")
+    if not isinstance(ranges,list): raise ValueError("模型没有返回 delete_ranges")
+    return ranges
+
 def validate_plan(plan, scenes, rewrite_result, duration):
     scene_map={x["id"]:x for x in scenes}; seg_ids={x["id"] for x in rewrite_result["segments"]}
     if not isinstance(plan.get("timeline"),list) or not plan["timeline"]: raise ValueError("剪辑计划没有 timeline")

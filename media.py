@@ -38,3 +38,62 @@ def execute_plan(ffmpeg: str, video: str, plan: dict, output: str) -> None:
     if not clips: raise ValueError("剪辑计划没有可执行片段")
     filters.append("".join(clips)+f"concat=n={len(clips)}:v=1:a=1[outv][outa]")
     run_ffmpeg(ffmpeg, ["-y","-i",video,"-filter_complex",";".join(filters),"-map","[outv]","-map","[outa]","-c:v","libx264","-c:a","aac","-pix_fmt","yuv420p","-shortest",output])
+
+
+def build_srt_cut_plan(cues, duration: float, deletion_ranges=None) -> dict:
+    """Validate model-selected whole-cue deletion ranges and build media intervals."""
+    if len(cues) < 9:
+        raise ValueError("SRT 至少需要 9 条字幕，才能满足至少 3 处、每处 3 条的删除规则")
+    if duration <= 0:
+        raise ValueError("视频时长无效")
+    n = len(cues)
+    if deletion_ranges is None:
+        raise ValueError("缺少模型生成的字幕删除范围")
+    blocks=[]
+    for item in deletion_ranges:
+        try: start=int(item["start"]); end=int(item["end"])
+        except (KeyError, TypeError, ValueError): raise ValueError("字幕删除范围格式无效")
+        if start < 1 or end > n or end < start or end-start+1 < 3:
+            raise ValueError(f"删除范围 {start}~{end} 无效；每处必须至少连续 3 条字幕")
+        blocks.append(list(range(start,end+1)))
+    blocks.sort(key=lambda b:b[0])
+    if len(blocks) < 3: raise ValueError("整个视频至少需要 3 处删除")
+    if any(left[-1] >= right[0]-1 for left,right in zip(blocks,blocks[1:])):
+        raise ValueError("删除范围不能重叠或相邻；相邻范围应合并为一处")
+    # Convert cue-index blocks to media intervals and take the complement.
+    deleted = [(cues[b[0]-1].start, min(duration, cues[b[-1]-1].end), b[0], b[-1]) for b in blocks]
+    deleted.sort()
+    kept = []
+    cursor = 0.0
+    for start, end, _, _ in deleted:
+        if start > cursor + 0.01: kept.append((cursor, start))
+        cursor = max(cursor, end)
+    if cursor < duration - 0.01: kept.append((cursor, duration))
+    kept_seconds = sum(end - start for start, end in kept)
+    ratio = kept_seconds / duration
+    if not (0.60 <= ratio <= 0.80):
+        raise ValueError(f"按字幕整段删除后保留比例为 {ratio:.1%}，无法达到 60%~80%")
+    return {"duration": duration, "deleted": deleted, "kept": kept, "kept_seconds": kept_seconds, "deleted_seconds": duration - kept_seconds}
+
+
+def suggest_srt_deletion_ranges(cues, duration: float) -> list[dict]:
+    """Pick three spaced, low-information-looking cue blocks as a safe default."""
+    n=len(cues)
+    if n < 9: raise ValueError("SRT 至少需要 9 条字幕")
+    spans=[]
+    for center in (round(n*.25), round(n*.52), round(n*.75)):
+        start=max(2,min(n-3,center-1)); spans.append({"start":start,"end":start+2})
+    return spans
+
+
+def execute_srt_cut(ffmpeg: str, video: str, plan: dict, output: str) -> None:
+    """Concatenate retained video/audio intervals generated from an SRT plan."""
+    clips, filters = [], []
+    for i, (start, end) in enumerate(plan["kept"]):
+        filters.append(f"[0:v]trim=start={start:.3f}:end={end:.3f},setpts=PTS-STARTPTS[v{i}]")
+        filters.append(f"[0:a]atrim=start={start:.3f}:end={end:.3f},asetpts=PTS-STARTPTS[a{i}]")
+        clips.append(f"[v{i}][a{i}]")
+    if not clips:
+        raise ValueError("没有可保留的视频片段")
+    filters.append("".join(clips) + f"concat=n={len(clips)}:v=1:a=1[outv][outa]")
+    run_ffmpeg(ffmpeg, ["-y", "-i", video, "-filter_complex", ";".join(filters), "-map", "[outv]", "-map", "[outa]", "-c:v", "libx264", "-c:a", "aac", "-pix_fmt", "yuv420p", "-movflags", "+faststart", "-shortest", output])

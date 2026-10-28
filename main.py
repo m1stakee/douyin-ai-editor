@@ -83,7 +83,7 @@ class App(tk.Tk):
         self.url_text=tk.Text(source,height=8,wrap="word",font=("Microsoft YaHei UI",10),bg="#F8FAFC",fg="#203047",insertbackground="#F06449",relief="flat",padx=11,pady=10,highlightthickness=1,highlightbackground="#D5DCE5",highlightcolor="#F06449"); self.url_text.grid(row=2,column=0,sticky="nsew")
         directory=ttk.Frame(source,style="Panel.TFrame"); directory.grid(row=3,column=0,sticky="ew",pady=(11,0)); ttk.Label(directory,textvariable=self.project_text,style="Muted.TLabel").pack(side="left",fill="x",expand=True); ttk.Button(directory,text="选择目录",command=self.choose_project).pack(side="left",padx=5); ttk.Button(directory,text="打开目录",command=self.open_project).pack(side="left")
         flow=ttk.Frame(source,style="Panel.TFrame"); flow.grid(row=4,column=0,sticky="ew",pady=(14,0))
-        ttk.Button(flow,text="1  下载视频",style="Primary.TButton",command=self.start_download).pack(side="left",padx=(0,7)); ttk.Button(flow,text="2  生成文案与 SRT",style="Flow.TButton",command=self.start_transcribe).pack(side="left",padx=7); ttk.Button(flow,text="3  AI 改写",style="Flow.TButton",command=self.open_rewrite_window).pack(side="left",padx=7); ttk.Button(flow,text="4  语音转出",style="Flow.TButton",command=self.open_voicevox_window).pack(side="left",padx=7)
+        ttk.Button(flow,text="1  下载视频",style="Primary.TButton",command=self.start_download).pack(side="left",padx=(0,7)); ttk.Button(flow,text="2  生成文案与 SRT",style="Flow.TButton",command=self.start_transcribe).pack(side="left",padx=7); ttk.Button(flow,text="3  AI 改写",style="Flow.TButton",command=self.open_rewrite_window).pack(side="left",padx=7); ttk.Button(flow,text="4  语音转出",style="Flow.TButton",command=self.open_voicevox_window).pack(side="left",padx=7); ttk.Button(flow,text="5  字幕剪辑",style="Flow.TButton",command=self.open_srt_cut_window).pack(side="left",padx=7)
         self.progress=ttk.Progressbar(source,orient="horizontal",mode="determinate",maximum=100); self.progress.grid(row=5,column=0,sticky="ew",pady=(10,0))
         task_box=ttk.Frame(source,style="Panel.TFrame"); task_box.grid(row=6,column=0,sticky="ew",pady=(9,0)); task_box.columnconfigure(0,weight=1)
         ttk.Label(task_box,text="各视频下载进度",style="Muted.TLabel").grid(row=0,column=0,sticky="w",pady=(0,5))
@@ -348,6 +348,49 @@ class App(tk.Tk):
     def choose_ffmpeg(self):
         p=filedialog.askopenfilename(title="选择 ffmpeg.exe",filetypes=[("FFmpeg", "ffmpeg.exe"), ("所有文件", "*.*")])
         if p: self.ffmpeg.set(p)
+
+    def open_srt_cut_window(self):
+        win = tk.Toplevel(self); win.title("5  字幕剪辑 · 输出新视频"); win.geometry("760x520"); win.minsize(700,500)
+        outer = ttk.Frame(win, padding=18); outer.pack(fill="both", expand=True); outer.columnconfigure(1, weight=1); outer.rowconfigure(5, weight=1)
+        ttk.Label(outer, text="字幕整段剪辑", style="Section.TLabel").grid(row=0, column=0, columnspan=3, sticky="w")
+        ttk.Label(outer, text="选择视频和 SRT，程序只按完整字幕段落删除，不修改字幕文字。", style="Muted.TLabel").grid(row=1, column=0, columnspan=3, sticky="w", pady=(3, 14))
+        video_var, srt_var, output_var = (tk.StringVar() for _ in range(3)); info_var = tk.StringVar(value="尚未分析"); result_var = tk.StringVar(value="")
+        def pick_video():
+            p=filedialog.askopenfilename(parent=win, title="选择原视频", filetypes=[("视频", "*.mp4;*.mov;*.mkv;*.avi;*.webm"), ("所有文件", "*.*")])
+            if p: video_var.set(p); output_var.set(str(Path(p).with_name(Path(p).stem + "_剪辑" + Path(p).suffix)))
+        def pick_srt():
+            p=filedialog.askopenfilename(parent=win, title="选择 SRT 字幕", filetypes=[("SRT 字幕", "*.srt"), ("所有文件", "*.*")])
+            if p: srt_var.set(p)
+        def pick_output():
+            p=filedialog.asksaveasfilename(parent=win, title="输出新视频", defaultextension=Path(video_var.get()).suffix or ".mp4", filetypes=[("MP4 视频", "*.mp4"), ("所有文件", "*.*")])
+            if p: output_var.set(p)
+        for row,label,var,command in ((2,"原视频",video_var,pick_video),(3,"SRT 字幕",srt_var,pick_srt),(4,"输出文件",output_var,pick_output)):
+            ttk.Label(outer,text=label,style="Panel.TLabel",width=11).grid(row=row,column=0,sticky="w",pady=5)
+            ttk.Entry(outer,textvariable=var).grid(row=row,column=1,sticky="ew",padx=8,pady=5); ttk.Button(outer,text="选择",command=command).grid(row=row,column=2,pady=5)
+        ttk.Label(outer,textvariable=info_var,style="Panel.TLabel",wraplength=680).grid(row=5,column=0,columnspan=3,sticky="nw",pady=(14,5))
+        detail=tk.Text(outer,height=9,wrap="word",font=("Consolas",9),state="disabled",bg="#F8FAFC",relief="flat"); detail.grid(row=6,column=0,columnspan=3,sticky="nsew",pady=(0,10)); outer.rowconfigure(6,weight=1)
+        def set_detail(text):
+            detail.configure(state="normal"); detail.delete("1.0","end"); detail.insert("end",text); detail.configure(state="disabled")
+        def run_cut():
+            if not video_var.get() or not srt_var.get() or not output_var.get(): messagebox.showinfo("字幕剪辑","请选择视频、SRT 和输出文件",parent=win); return
+            button.configure(state="disabled"); info_var.set("正在解析字幕并执行 FFmpeg……")
+            def work():
+                try:
+                    video=Path(video_var.get()).resolve(); srt=Path(srt_var.get()).resolve(); output=Path(output_var.get()).resolve(); output.parent.mkdir(parents=True,exist_ok=True)
+                    duration=media.probe_duration(asr.resolve_ffmpeg(),str(video)); cues=voicevox_service.parse_srt(srt.read_text(encoding="utf-8-sig"))
+                    if not self.llm_key.get().strip(): raise ValueError("请先在主界面的接口配置中填写 ChatGPT 接口 Key，用于按字幕内容判断保留和删除段落")
+                    ranges=ai.srt_deletion_plan(cues,duration,OPENAI_COMPAT_URL,self.llm_key.get(),OPENAI_COMPAT_MODEL,OPENAI_COMPAT_REASONING_EFFORT)
+                    try:
+                        plan=media.build_srt_cut_plan(cues,duration,ranges)
+                    except ValueError as first_error:
+                        ranges=ai.srt_deletion_plan(cues,duration,OPENAI_COMPAT_URL,self.llm_key.get(),OPENAI_COMPAT_MODEL,OPENAI_COMPAT_REASONING_EFFORT,str(first_error)); plan=media.build_srt_cut_plan(cues,duration,ranges)
+                    media.execute_srt_cut(asr.resolve_ffmpeg(),str(video),plan,str(output))
+                    blocks="\n".join(f"删除第 {a}~{b} 段：{start:.0f}s - {end:.0f}s" for start,end,a,b in plan["deleted"])
+                    text=f"原视频：{duration/60:.0f} 分钟\n预计剪掉：{plan['deleted_seconds']/60:.0f} 分钟\n保留：{plan['kept_seconds']/60:.0f} 分钟（{plan['kept_seconds']/duration:.1%}）\n\n{blocks}\n\n已输出：{output}"
+                    self.after(0,lambda:(info_var.set("剪辑完成"),set_detail(text),button.configure(state="normal"),messagebox.showinfo("字幕剪辑完成",f"新视频已输出：\n{output}",parent=win)))
+                except Exception as exc: self.after(0,lambda e=exc:(info_var.set("剪辑失败"),set_detail(str(e)),button.configure(state="normal"),messagebox.showerror("字幕剪辑失败",str(e),parent=win)))
+            self.run(work)
+        button=ttk.Button(outer,text="分析并输出新视频",style="Primary.TButton",command=run_cut); button.grid(row=7,column=2,sticky="e")
     def open_rename_window(self):
         if not self.project: messagebox.showinfo("批量重命名","请先选择输出目录"); return
         folder=str(self.project)
