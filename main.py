@@ -607,7 +607,7 @@ class App(tk.Tk):
             if srt.is_file(): videos.append((video,srt))
         if not videos:
             messagebox.showinfo("字幕剪辑","步骤 1 和步骤 2 中没有可匹配的视频与 SRT",parent=self); return
-        win=tk.Toplevel(self); win.title("3  字幕剪辑"); win.geometry("900x620"); win.minsize(760,500)
+        win=tk.Toplevel(self); win.title("3  字幕剪辑"); win.geometry("1120x700"); win.minsize(900,560)
         outer=ttk.Frame(win,padding=16); outer.pack(fill="both",expand=True); outer.columnconfigure(0,weight=1); outer.rowconfigure(3,weight=1)
         ttk.Label(outer,text="字幕剪辑",style="Section.TLabel").grid(row=0,column=0,sticky="w")
         ttk.Label(outer,text="读取步骤文件或手动导入视频；程序按同名 SRT 匹配并输出到 3_字幕剪辑。",style="Muted.TLabel").grid(row=1,column=0,sticky="w",pady=(3,10))
@@ -615,11 +615,20 @@ class App(tk.Tk):
         canvas=tk.Canvas(list_frame,bg="#F8FAFC",highlightthickness=1,highlightbackground="#D5DCE5"); canvas.grid(row=0,column=0,sticky="nsew"); scroll=ttk.Scrollbar(list_frame,orient="vertical",command=canvas.yview); scroll.grid(row=0,column=1,sticky="ns"); canvas.configure(yscrollcommand=scroll.set)
         frame=ttk.Frame(canvas); window_id=canvas.create_window((0,0),window=frame,anchor="nw"); frame.bind("<Configure>",lambda e:canvas.configure(scrollregion=canvas.bbox("all"))); canvas.bind("<Configure>",lambda e:canvas.itemconfigure(window_id,width=e.width))
         count=tk.StringVar(value="尚未载入视频"); status=tk.StringVar(value="就绪")
+        def short_name(path,limit=58):
+            name=Path(path).name
+            if len(name)<=limit:return name
+            suffix=Path(name).suffix; keep=max(12,limit-len(suffix)-4); return name[:keep]+"..."+suffix
+        def show_detail(item):
+            messagebox.showinfo("字幕剪辑详情",f"视频：\n{item['video']}\n\nSRT：\n{item['srt']}\n\n状态：\n{item.get('detail') or item['label'].get()}",parent=win)
         def add_video(video,srt):
             if any(str(item["video"]).casefold()==str(video).casefold() for item in rows): return
-            selected=tk.BooleanVar(value=True); item_frame=ttk.Frame(frame,padding=5); item_frame.pack(fill="x"); item_frame.columnconfigure(2,weight=1)
-            button=ttk.Button(item_frame,text="已选择",width=8,style="Selected.TButton",command=lambda:toggle(item)); button.grid(row=0,column=0,padx=(0,8)); ttk.Label(item_frame,text=video.name).grid(row=0,column=1,sticky="w"); ttk.Label(item_frame,text=f"SRT：{srt.name}",style="Muted.TLabel").grid(row=0,column=2,sticky="w",padx=8); progress=ttk.Progressbar(item_frame,maximum=100,length=120); progress.grid(row=0,column=3,padx=6); label=tk.StringVar(value="等待"); ttk.Label(item_frame,textvariable=label,width=10,style="Muted.TLabel").grid(row=0,column=4)
-            item={"video":video,"srt":srt,"selected":selected,"button":button,"frame":item_frame,"progress":progress,"label":label}; rows.append(item)
+            selected=tk.BooleanVar(value=True); item_frame=ttk.Frame(frame,padding=(8,7)); item_frame.pack(fill="x",pady=(0,1)); item_frame.columnconfigure(1,weight=1); item_frame.columnconfigure(2,weight=1)
+            button=ttk.Button(item_frame,text="已选择",width=8,style="Selected.TButton",command=lambda:toggle(item)); button.grid(row=0,column=0,rowspan=2,padx=(0,10),sticky="ns")
+            ttk.Label(item_frame,text="视频：",style="Muted.TLabel").grid(row=0,column=1,sticky="w"); ttk.Label(item_frame,text=short_name(video),style="Panel.TLabel").grid(row=0,column=1,sticky="w",padx=(45,8))
+            ttk.Label(item_frame,text="SRT：",style="Muted.TLabel").grid(row=1,column=1,sticky="w"); ttk.Label(item_frame,text=short_name(srt),style="Panel.TLabel").grid(row=1,column=1,sticky="w",padx=(45,8))
+            progress=ttk.Progressbar(item_frame,maximum=100,length=180); progress.grid(row=0,column=2,sticky="e",padx=(8,4)); label=tk.StringVar(value="等待"); ttk.Label(item_frame,textvariable=label,width=20,anchor="e",style="Muted.TLabel").grid(row=1,column=2,sticky="e",padx=(8,4)); detail_button=ttk.Button(item_frame,text="详情",width=6); detail_button.grid(row=0,column=3,rowspan=2,padx=(6,0))
+            item={"video":video,"srt":srt,"selected":selected,"button":button,"frame":item_frame,"progress":progress,"label":label,"detail":"等待处理"}; detail_button.configure(command=lambda i=item:show_detail(i)); rows.append(item)
         def toggle(item):
             value=not item["selected"].get(); item["selected"].set(value); item["button"].configure(text="已选择" if value else "未选择",style="Selected.TButton" if value else "TButton"); count.set(f"已选择 {sum(x['selected'].get() for x in rows)} / {len(rows)} 个视频")
         def refresh(): count.set(f"已选择 {sum(x['selected'].get() for x in rows)} / {len(rows)} 个视频")
@@ -649,12 +658,14 @@ class App(tk.Tk):
                 good=0
                 for item in chosen:
                     try:
+                        self.after(0,lambda i=item:(i["progress"].configure(value=10),i["label"].set("分析字幕")))
                         duration=media.probe_duration(asr.resolve_ffmpeg(),str(item["video"])); cues=voicevox_service.parse_srt(item["srt"].read_text(encoding="utf-8-sig")); ranges=ai.srt_deletion_plan(cues,duration,OPENAI_COMPAT_URL,self.llm_key.get(),OPENAI_COMPAT_MODEL,OPENAI_COMPAT_REASONING_EFFORT)
                         try: plan=media.build_srt_cut_plan(cues,duration,ranges)
                         except ValueError as first_error:
                             ranges=ai.srt_deletion_plan(cues,duration,OPENAI_COMPAT_URL,self.llm_key.get(),OPENAI_COMPAT_MODEL,OPENAI_COMPAT_REASONING_EFFORT,str(first_error)); plan=media.build_srt_cut_plan(cues,duration,ranges)
-                        out=output_dir/f"{item['video'].stem}_剪辑.mp4"; media.execute_srt_cut(asr.resolve_ffmpeg(),str(item["video"]),plan,str(out)); media.write_cut_subtitles(cues,plan,str(output_dir/f"{item['video'].stem}_剪辑.srt"),str(output_dir/f"{item['video'].stem}_剪辑.txt")); good+=1; self.after(0,lambda i=item:(i["progress"].configure(value=100),i["label"].set("完成")))
-                    except Exception as exc: self.after(0,lambda i=item,e=exc:i["label"].set(f"失败：{e}"))
+                        out=output_dir/f"{item['video'].stem}_剪辑.mp4"; media.execute_srt_cut(asr.resolve_ffmpeg(),str(item["video"]),plan,str(out)); media.write_cut_subtitles(cues,plan,str(output_dir/f"{item['video'].stem}_剪辑.srt"),str(output_dir/f"{item['video'].stem}_剪辑.txt")); item["detail"]=f"完成\n输出视频：{out}"; good+=1; self.after(0,lambda i=item:(i["progress"].configure(value=100),i["label"].set("完成")))
+                    except Exception as exc:
+                        item["detail"]=f"失败：{exc}"; self.after(0,lambda i=item:(i["progress"].configure(value=0),i["label"].set("失败（查看详情）")))
                 self.after(0,lambda: (button.configure(state="normal"),status.set(f"完成：{good}/{len(chosen)}")))
             self.run(work)
         button=ttk.Button(footer,text="开始字幕剪辑",style="Primary.TButton",command=begin); button.pack(side="right"); load_step()
