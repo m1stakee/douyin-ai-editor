@@ -74,6 +74,7 @@ def edit_plan(segments, scenes, rewrite_result, base_url, key, model, reasoning_
 def srt_deletion_plan(cues, duration, base_url, key, model, reasoning_effort=None, correction=""):
     system=("你是解说视频字幕剪辑规划器。只能通过整段删除字幕条目来剪辑，绝不能修改字幕文字。"
             "成片保留时长必须为原视频的60%到80%；每处删除至少连续3条字幕，整个视频至少3处删除。"
+            "执行视频剪辑时，每个删除区间的结束时间会比最后一条字幕结束时间提前1秒，请在规划总时长时考虑这1秒保留量。"
             "优先保留开头引子、核心观点或结论、关键案例或反转、结尾总结；优先删除重复解释、赘述、口头禅和无信息填充。"
             "只返回JSON对象，不要Markdown和解释。格式必须为 {\"delete_ranges\":[{\"start\":11,\"end\":20}]}。"
             "start和end是输入数组中的position，不是SRT原始编号；删除范围不能重叠或相邻。")

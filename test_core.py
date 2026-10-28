@@ -40,6 +40,7 @@ class TestCore(unittest.TestCase):
         self.assertGreaterEqual(len(plan["deleted"]), 3)
         self.assertTrue(0.60 <= plan["kept_seconds"] / 300 <= 0.80)
         self.assertTrue(all(end > start for start,end,_,_ in plan["deleted"]))
+        self.assertEqual(plan["deleted"][0][:2],(40,68.0))
 
     def test_write_cut_subtitles_retimes_and_keeps_text(self):
         from tempfile import TemporaryDirectory

@@ -3,6 +3,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+CUT_END_ADVANCE_SECONDS = 1.0
+
 def run_ffmpeg(ffmpeg: str, args: list[str]) -> None:
     p = subprocess.run([ffmpeg, *args], capture_output=True, text=True, encoding="utf-8", errors="replace", creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0)
     if p.returncode:
@@ -61,7 +63,14 @@ def build_srt_cut_plan(cues, duration: float, deletion_ranges=None) -> dict:
     if any(left[-1] >= right[0]-1 for left,right in zip(blocks,blocks[1:])):
         raise ValueError("删除范围不能重叠或相邻；相邻范围应合并为一处")
     # Convert cue-index blocks to media intervals and take the complement.
-    deleted = [(cues[b[0]-1].start, min(duration, cues[b[-1]-1].end), b[0], b[-1]) for b in blocks]
+    deleted = []
+    for block in blocks:
+        start = cues[block[0] - 1].start
+        original_end = min(duration, cues[block[-1] - 1].end)
+        end = original_end - CUT_END_ADVANCE_SECONDS
+        if end <= start:
+            raise ValueError(f"删除范围 {block[0]}~{block[-1]} 时长不足，结束点提前 1 秒后无法剪辑")
+        deleted.append((start, end, block[0], block[-1]))
     deleted.sort()
     kept = []
     cursor = 0.0
