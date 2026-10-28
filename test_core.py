@@ -12,10 +12,28 @@ from app_config import save_settings, load_settings
 from asr import prepared_asr_audio, transcribe, transcribe_request_config, segments_to_srt, segments_to_text
 from media import fixed_scenes, build_srt_cut_plan
 from voicevox_service import SrtCue
-from ai import rewrite_text, validate_plan
+from ai import chat, rewrite_text, validate_plan
 from task_store import TaskStore
 from license_client import verify_license, verify_saved_license
 class TestCore(unittest.TestCase):
+    @patch("ai.requests.post")
+    def test_json_chat_retries_when_gateway_rejects_response_format(self, post):
+        rejected=Mock(ok=False,status_code=400,text='unsupported response_format'); rejected.json.return_value={"error":{"message":"unsupported response_format"}}
+        accepted=Mock(ok=True,status_code=200); accepted.json.return_value={"choices":[{"message":{"content":"```json\n{\"delete_ranges\": []}\n```"}}]}
+        post.side_effect=[rejected,accepted]
+        result=chat("https://example.com/v1","key","model","system","user","low")
+        self.assertEqual(result,{"delete_ranges":[]})
+        self.assertIn("response_format",post.call_args_list[0].kwargs["json"])
+        self.assertNotIn("response_format",post.call_args_list[1].kwargs["json"])
+        self.assertNotIn("temperature",post.call_args_list[0].kwargs["json"])
+
+    @patch("ai.requests.post")
+    def test_json_chat_shows_gateway_error_detail(self, post):
+        rejected=Mock(ok=False,status_code=400,text='bad request'); rejected.json.return_value={"error":{"message":"model does not support this parameter"}}
+        post.return_value=rejected
+        with self.assertRaisesRegex(ValueError,"model does not support this parameter"):
+            chat("https://example.com/v1","key","model","system","user")
+
     def test_srt_cut_plan_has_three_blocks_and_target_ratio(self):
         cues=[SrtCue(i, (i-1)*10, i*10-1, f"字幕{i}") for i in range(1, 31)]
         plan=build_srt_cut_plan(cues, 300,[{"start":5,"end":7},{"start":14,"end":16},{"start":23,"end":25}])

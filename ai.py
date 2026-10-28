@@ -1,17 +1,50 @@
 import json
 import requests
 
+def _json_content(value: str) -> dict:
+    text=str(value or "").strip()
+    if text.startswith("```"):
+        text=text.split("\n",1)[1] if "\n" in text else text[3:]
+        if text.rstrip().endswith("```"): text=text.rstrip()[:-3]
+    start=text.find("{"); end=text.rfind("}")
+    if start < 0 or end < start: raise ValueError("模型没有返回有效的 JSON 对象")
+    try: result=json.loads(text[start:end+1])
+    except json.JSONDecodeError as exc: raise ValueError(f"模型返回的 JSON 无法解析：{exc.msg}") from exc
+    if not isinstance(result,dict): raise ValueError("模型返回结果必须是 JSON 对象")
+    return result
+
+def _response_error(response) -> str:
+    try:
+        data=response.json(); detail=data.get("error",data)
+        if isinstance(detail,dict): detail=detail.get("message") or detail.get("code") or json.dumps(detail,ensure_ascii=False)
+        return str(detail)[:800]
+    except Exception:
+        return str(getattr(response,"text","") or f"HTTP {response.status_code}")[:800]
+
 def chat(base_url: str, key: str, model: str, system: str, user: str, reasoning_effort: str | None = None) -> dict:
     if not base_url or not model: raise ValueError("请配置 LLM 接口和模型")
     url=base_url.rstrip("/")
     if not url.endswith("/chat/completions"): url += "/chat/completions"
     headers={"Content-Type":"application/json"}
     if key: headers["Authorization"]=f"Bearer {key}"
-    body={"model":model,"temperature":0.2,"messages":[{"role":"system","content":system},{"role":"user","content":user}],"response_format":{"type":"json_object"}}
-    if reasoning_effort: body["reasoning_effort"]=reasoning_effort
-    r=requests.post(url,headers=headers,json=body,timeout=60); r.raise_for_status()
-    content=r.json()["choices"][0]["message"]["content"]
-    return json.loads(content)
+    base={"model":model,"messages":[{"role":"system","content":system},{"role":"user","content":user}]}
+    attempts=[]
+    first={**base,"response_format":{"type":"json_object"}}
+    if reasoning_effort: first["reasoning_effort"]=reasoning_effort
+    attempts.append(first)
+    second=dict(base)
+    if reasoning_effort: second["reasoning_effort"]=reasoning_effort
+    attempts.append(second)
+    if reasoning_effort: attempts.append(dict(base))
+    last=None
+    for position,body in enumerate(attempts):
+        r=requests.post(url,headers=headers,json=body,timeout=180); last=r
+        if r.ok:
+            try: content=r.json()["choices"][0]["message"]["content"]
+            except (KeyError,IndexError,TypeError,ValueError) as exc: raise ValueError("模型接口返回格式不完整") from exc
+            return _json_content(content)
+        if r.status_code != 400 or position == len(attempts)-1: break
+    raise ValueError(f"模型接口请求失败（HTTP {last.status_code}）：{_response_error(last)}")
 
 def rewrite_text(text: str, prompt: str, key: str, model: str, base_url: str | None = None, reasoning_effort: str | None = None) -> str:
     if not key.strip(): raise ValueError("请先配置 API Key")
