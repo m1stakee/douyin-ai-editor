@@ -97,3 +97,24 @@ def execute_srt_cut(ffmpeg: str, video: str, plan: dict, output: str) -> None:
         raise ValueError("没有可保留的视频片段")
     filters.append("".join(clips) + f"concat=n={len(clips)}:v=1:a=1[outv][outa]")
     run_ffmpeg(ffmpeg, ["-y", "-i", video, "-filter_complex", ";".join(filters), "-map", "[outv]", "-map", "[outa]", "-c:v", "libx264", "-c:a", "aac", "-pix_fmt", "yuv420p", "-movflags", "+faststart", "-shortest", output])
+
+
+def write_cut_subtitles(cues, plan: dict, srt_output: str, text_output: str) -> None:
+    """Write a re-timed SRT and plain text for the retained subtitle cues."""
+    kept = plan["kept"]
+    rows = []
+    deleted = sorted(plan["deleted"])
+    for cue in cues:
+        containing = next(((start, end) for start, end in kept if cue.start >= start - 0.01 and cue.end <= end + 0.01), None)
+        if containing is None:
+            continue
+        removed_before = sum(end - start for start, end, _, _ in deleted if end <= cue.start)
+        new_start = max(0.0, cue.start - removed_before)
+        new_end = max(new_start + 0.001, cue.end - removed_before)
+        rows.append((new_start, new_end, cue.text))
+    def stamp(seconds: float) -> str:
+        millis = max(0, round(seconds * 1000)); hours, millis = divmod(millis, 3600000); minutes, millis = divmod(millis, 60000); secs, millis = divmod(millis, 1000)
+        return f"{hours:02d}:{minutes:02d}:{secs:02d},{millis:03d}"
+    blocks = [f"{i}\n{stamp(start)} --> {stamp(end)}\n{text}" for i, (start, end, text) in enumerate(rows, 1)]
+    Path(srt_output).write_text("\n\n".join(blocks) + ("\n" if blocks else ""), encoding="utf-8-sig")
+    Path(text_output).write_text("\n".join(text for _, _, text in rows) + ("\n" if rows else ""), encoding="utf-8-sig")

@@ -10,7 +10,7 @@ from downloader import extract_share_urls
 from batch_service import run_batch, transcribe_worker_count
 from app_config import save_settings, load_settings
 from asr import prepared_asr_audio, transcribe, transcribe_request_config, segments_to_srt, segments_to_text
-from media import fixed_scenes, build_srt_cut_plan
+from media import fixed_scenes, build_srt_cut_plan, write_cut_subtitles
 from voicevox_service import SrtCue
 from ai import chat, rewrite_text, validate_plan
 from task_store import TaskStore
@@ -40,6 +40,17 @@ class TestCore(unittest.TestCase):
         self.assertGreaterEqual(len(plan["deleted"]), 3)
         self.assertTrue(0.60 <= plan["kept_seconds"] / 300 <= 0.80)
         self.assertTrue(all(end > start for start,end,_,_ in plan["deleted"]))
+
+    def test_write_cut_subtitles_retimes_and_keeps_text(self):
+        from tempfile import TemporaryDirectory
+        cues=[SrtCue(1,0,10,"开头"),SrtCue(2,10,20,"删掉一"),SrtCue(3,20,30,"删掉二"),SrtCue(4,30,40,"删掉三"),SrtCue(5,40,50,"结尾")]
+        plan={"deleted":[(10,40,2,4)],"kept":[(0,10),(40,50)]}
+        with TemporaryDirectory() as folder:
+            srt=Path(folder)/"out.srt"; txt=Path(folder)/"out.txt"
+            write_cut_subtitles(cues,plan,str(srt),str(txt))
+            self.assertIn("00:00:00,000 --> 00:00:10,000",srt.read_text(encoding="utf-8-sig"))
+            self.assertIn("00:00:10,000 --> 00:00:20,000",srt.read_text(encoding="utf-8-sig"))
+            self.assertEqual(txt.read_text(encoding="utf-8-sig"),"开头\n结尾\n")
     @patch("license_client.requests.post")
     def test_license_verification_posts_to_server(self, post):
         post.return_value.json.return_value={"valid":True,"message":"授权验证成功"}
