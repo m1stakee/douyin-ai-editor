@@ -16,6 +16,11 @@ OPENAI_COMPAT_MODEL="gpt-6.1-sol"
 OPENAI_COMPAT_REASONING_EFFORT="low"
 DOUBAO_API_URL="https://ark.cn-beijing.volces.com/api/v3"
 DOUBAO_MODEL="doubao-seed-2-1-pro-260915"
+STEP_DOWNLOAD_DIR="1_下载视频"
+STEP_TRANSCRIBE_DIR="2_文案与SRT"
+STEP_CUT_DIR="3_字幕剪辑"
+STEP_REWRITE_DIR="4_AI改写"
+STEP_VOICE_DIR="5_语音转出"
 
 class App(tk.Tk):
     def __init__(self):
@@ -83,7 +88,7 @@ class App(tk.Tk):
         self.url_text=tk.Text(source,height=8,wrap="word",font=("Microsoft YaHei UI",10),bg="#F8FAFC",fg="#203047",insertbackground="#F06449",relief="flat",padx=11,pady=10,highlightthickness=1,highlightbackground="#D5DCE5",highlightcolor="#F06449"); self.url_text.grid(row=2,column=0,sticky="nsew")
         directory=ttk.Frame(source,style="Panel.TFrame"); directory.grid(row=3,column=0,sticky="ew",pady=(11,0)); ttk.Label(directory,textvariable=self.project_text,style="Muted.TLabel").pack(side="left",fill="x",expand=True); ttk.Button(directory,text="选择目录",command=self.choose_project).pack(side="left",padx=5); ttk.Button(directory,text="打开目录",command=self.open_project).pack(side="left")
         flow=ttk.Frame(source,style="Panel.TFrame"); flow.grid(row=4,column=0,sticky="ew",pady=(14,0))
-        ttk.Button(flow,text="1  下载视频",style="Primary.TButton",command=self.start_download).pack(side="left",padx=(0,7)); ttk.Button(flow,text="2  生成文案与 SRT",style="Flow.TButton",command=self.start_transcribe).pack(side="left",padx=7); ttk.Button(flow,text="3  AI 改写",style="Flow.TButton",command=self.open_rewrite_window).pack(side="left",padx=7); ttk.Button(flow,text="4  语音转出",style="Flow.TButton",command=self.open_voicevox_window).pack(side="left",padx=7)
+        ttk.Button(flow,text="1  下载视频",style="Primary.TButton",command=self.start_download).pack(side="left",padx=(0,7)); ttk.Button(flow,text="2  生成文案与 SRT",style="Flow.TButton",command=self.start_transcribe).pack(side="left",padx=7); ttk.Button(flow,text="3  字幕剪辑",style="Flow.TButton",command=self.start_cutting).pack(side="left",padx=7); ttk.Button(flow,text="4  AI 改写",style="Flow.TButton",command=self.open_rewrite_window).pack(side="left",padx=7); ttk.Button(flow,text="5  语音转出",style="Flow.TButton",command=self.open_voicevox_window).pack(side="left",padx=7)
         self.progress=ttk.Progressbar(source,orient="horizontal",mode="determinate",maximum=100); self.progress.grid(row=5,column=0,sticky="ew",pady=(10,0))
         task_box=ttk.Frame(source,style="Panel.TFrame"); task_box.grid(row=6,column=0,sticky="ew",pady=(9,0)); task_box.columnconfigure(0,weight=1)
         ttk.Label(task_box,text="各视频下载进度",style="Muted.TLabel").grid(row=0,column=0,sticky="w",pady=(0,5))
@@ -133,6 +138,9 @@ class App(tk.Tk):
     def choose_project(self):
         p=filedialog.askdirectory();
         if p: self.project=Path(p); self.project_text.set(f"输出到：{p}"); self.status.set("输出目录已选择")
+    def step_directory(self,name):
+        if not self.project: raise ValueError("请先选择项目目录")
+        folder=self.project/name; folder.mkdir(parents=True,exist_ok=True); return folder
     def open_project(self):
         if not self.project: messagebox.showinfo("打开输出目录","请先选择输出目录"); return
         if not self.project.exists(): messagebox.showerror("打开输出目录","输出目录不存在"); return
@@ -223,7 +231,7 @@ class App(tk.Tk):
         ttk.Label(file_actions,textvariable=file_count,style="Muted.TLabel").pack(side="right")
 
         output_box=ttk.Frame(file_box,style="Panel.TFrame"); output_box.grid(row=3,column=0,columnspan=2,sticky="ew",pady=(9,0)); output_box.columnconfigure(1,weight=1)
-        output_directory_var=self.voicevox_output_directory; output_directory_var.set(output_directory_var.get() or str((self.project or Path.cwd())/"voicevox_output")); pause_var=self.voicevox_pause
+        output_directory_var=self.voicevox_output_directory; output_directory_var.set(str(self.step_directory(STEP_VOICE_DIR) if self.project else Path.cwd()/STEP_VOICE_DIR)); pause_var=self.voicevox_pause
         ttk.Label(output_box,text="保存目录",style="Panel.TLabel",width=11).grid(row=0,column=0,sticky="w"); ttk.Entry(output_box,textvariable=output_directory_var).grid(row=0,column=1,sticky="ew")
         def choose_output_directory():
             selected=filedialog.askdirectory(parent=win,title="选择语音和字幕保存目录")
@@ -425,7 +433,11 @@ class App(tk.Tk):
         if task: self.rerun_task(task)
     def rerun_task(self,task):
         output=task.get("output_dir","")
-        if output: self.project=Path(output); self.project_text.set(f"输出到：{output}")
+        if output:
+            project=Path(output)
+            if project.name.startswith("改写批次_"): project=project.parent
+            if project.name in {STEP_DOWNLOAD_DIR,STEP_TRANSCRIBE_DIR,STEP_CUT_DIR,STEP_REWRITE_DIR,STEP_VOICE_DIR}: project=project.parent
+            self.project=project; self.project_text.set(f"输出到：{project}")
         if task.get("kind")=="download":
             urls=[item.get("url","") for item in task.get("items",[]) if item.get("url")]
             self.url_text.delete("1.0","end"); self.url_text.insert("1.0","\n".join(urls)); self.start_download()
@@ -503,10 +515,11 @@ class App(tk.Tk):
         if not urls: self.log("下载失败：请至少输入一条抖音分享链接"); return
         if not self.project: self.log("下载失败：请先选择项目目录"); return
         self.batch_counter+=1; batch_id=self.batch_counter; self.latest_batch_id=batch_id; controls=[downloader_service.DownloadControl() for _ in urls]; self.batch_controls[batch_id]=controls
-        saved_task=self.task_store.create("download",f"下载批次 {batch_id}",str(self.project),[{"url":url} for url in urls]); self.batch_task_ids[batch_id]=saved_task["id"]; self.task_store.update_task(saved_task["id"],status="运行中")
-        self.batch_contexts[batch_id]={"urls":urls,"controls":controls,"output_dir":str(self.project or ""),"quality":self.download_quality.get(),"ffmpeg":self.ffmpeg.get(),"api_key":self.download_key.get(),"api_url":downloader_service.DEFAULT_API_URL}
+        download_dir=self.step_directory(STEP_DOWNLOAD_DIR)
+        saved_task=self.task_store.create("download",f"下载批次 {batch_id}",str(download_dir),[{"url":url} for url in urls]); self.batch_task_ids[batch_id]=saved_task["id"]; self.task_store.update_task(saved_task["id"],status="运行中")
+        self.batch_contexts[batch_id]={"urls":urls,"controls":controls,"output_dir":str(download_dir),"quality":self.download_quality.get(),"ffmpeg":self.ffmpeg.get(),"api_key":self.download_key.get(),"api_url":downloader_service.DEFAULT_API_URL}
         self.prepare_download_rows(batch_id,urls); self.open_download_window(batch_id,urls,controls)
-        values=(batch_id,input_text,self.project,self.download_quality.get(),self.ffmpeg.get(),int(self.download_workers.get()),self.download_key.get(),controls); self.run(lambda: self.download(*values))
+        values=(batch_id,input_text,download_dir,self.download_quality.get(),self.ffmpeg.get(),int(self.download_workers.get()),self.download_key.get(),controls); self.run(lambda: self.download(*values))
     def download(self,batch_id,input_text,project,quality,ffmpeg,download_workers,api_key,controls):
         try:
             if not project: raise ValueError("请先选择项目目录")
@@ -568,27 +581,12 @@ class App(tk.Tk):
             with asr.prepared_asr_audio(str(video),context["ffmpeg"],status) as audio_path:
                 control.checkpoint(); seg=asr.transcribe(audio_path,key=context["api_key"],language=context["source_lang"],on_status=status)
             control.checkpoint(); self.set_transcribe_progress(batch_id,index,85,"生成文案/SRT")
-            json_path=video.with_suffix(".json"); srt_path=video.with_suffix(".srt"); txt_path=video.with_suffix(".txt")
+            output_dir=Path(context["output_directory"]); output_dir.mkdir(parents=True,exist_ok=True)
+            json_path=output_dir/f"{video.stem}.json"; srt_path=output_dir/f"{video.stem}.srt"; txt_path=output_dir/f"{video.stem}.txt"
             json_path.write_text(json.dumps(seg,ensure_ascii=False,indent=2),encoding="utf-8")
             srt_path.write_text(asr.segments_to_srt(seg),encoding="utf-8-sig")
             txt_path.write_text(asr.segments_to_text(seg),encoding="utf-8-sig")
-            self.set_transcribe_progress(batch_id,index,88,"按提示词分析剪辑范围")
-            if not self.llm_key.get().strip():
-                raise ValueError("已生成原始文案和 SRT；如需自动剪辑，请先在接口配置中填写 ChatGPT 接口 Key")
-            cues=voicevox_service.parse_srt(srt_path.read_text(encoding="utf-8-sig"))
-            duration=media.probe_duration(asr.resolve_ffmpeg(context["ffmpeg"]),str(video))
-            ranges=ai.srt_deletion_plan(cues,duration,OPENAI_COMPAT_URL,self.llm_key.get(),OPENAI_COMPAT_MODEL,OPENAI_COMPAT_REASONING_EFFORT)
-            try:
-                plan=media.build_srt_cut_plan(cues,duration,ranges)
-            except ValueError as first_error:
-                ranges=ai.srt_deletion_plan(cues,duration,OPENAI_COMPAT_URL,self.llm_key.get(),OPENAI_COMPAT_MODEL,OPENAI_COMPAT_REASONING_EFFORT,str(first_error))
-                plan=media.build_srt_cut_plan(cues,duration,ranges)
-            clipped_video=video.with_name(f"{video.stem}_剪辑{video.suffix}")
-            clipped_srt=video.with_name(f"{video.stem}_剪辑.srt")
-            clipped_txt=video.with_name(f"{video.stem}_剪辑.txt")
-            media.execute_srt_cut(asr.resolve_ffmpeg(context["ffmpeg"]),str(video),plan,str(clipped_video))
-            media.write_cut_subtitles(cues,plan,str(clipped_srt),str(clipped_txt))
-            self.set_transcribe_progress(batch_id,index,100,"完成"); return (srt_path.name,txt_path.name,clipped_video.name,clipped_srt.name,clipped_txt.name)
+            self.set_transcribe_progress(batch_id,index,100,"完成"); return (srt_path.name,txt_path.name)
         except Exception:
             self.set_transcribe_progress(batch_id,index,0,"失败"); raise
     def retry_transcribe(self,batch_id,index):
@@ -596,12 +594,74 @@ class App(tk.Tk):
         if not context:return
         context["controls"][index].resume(); self.set_transcribe_progress(batch_id,index,0,"重试中"); video=context["videos"][index]
         def retry():
-            try: result=self.transcribe_one(batch_id,index,video,context); self.log(f"[转写批次 {batch_id} · {index+1}] 重试成功：{result[0]}、{result[1]}、{result[2]}、{result[3]}、{result[4]}")
+            try: result=self.transcribe_one(batch_id,index,video,context); self.log(f"[转写批次 {batch_id} · {index+1}] 重试成功：{result[0]}、{result[1]}")
             except Exception as exc: self.log(f"[转写批次 {batch_id} · {index+1}] 重试失败：{exc}")
         self.run(retry)
+    def start_cutting(self):
+        if not self.project:
+            messagebox.showinfo("字幕剪辑","请先选择项目目录",parent=self); return
+        source_dir=self.step_directory(STEP_DOWNLOAD_DIR); srt_dir=self.step_directory(STEP_TRANSCRIBE_DIR); output_dir=self.step_directory(STEP_CUT_DIR)
+        videos=[]
+        for video in rename_service.list_videos(source_dir):
+            srt=srt_dir/f"{video.stem}.srt"
+            if srt.is_file(): videos.append((video,srt))
+        if not videos:
+            messagebox.showinfo("字幕剪辑","步骤 1 和步骤 2 中没有可匹配的视频与 SRT",parent=self); return
+        win=tk.Toplevel(self); win.title("3  字幕剪辑"); win.geometry("900x620"); win.minsize(760,500)
+        outer=ttk.Frame(win,padding=16); outer.pack(fill="both",expand=True); outer.columnconfigure(0,weight=1); outer.rowconfigure(3,weight=1)
+        ttk.Label(outer,text="字幕剪辑",style="Section.TLabel").grid(row=0,column=0,sticky="w")
+        ttk.Label(outer,text="读取步骤文件或手动导入视频；程序按同名 SRT 匹配并输出到 3_字幕剪辑。",style="Muted.TLabel").grid(row=1,column=0,sticky="w",pady=(3,10))
+        rows=[]; list_frame=ttk.Frame(outer); list_frame.grid(row=3,column=0,sticky="nsew"); list_frame.columnconfigure(0,weight=1); list_frame.rowconfigure(0,weight=1)
+        canvas=tk.Canvas(list_frame,bg="#F8FAFC",highlightthickness=1,highlightbackground="#D5DCE5"); canvas.grid(row=0,column=0,sticky="nsew"); scroll=ttk.Scrollbar(list_frame,orient="vertical",command=canvas.yview); scroll.grid(row=0,column=1,sticky="ns"); canvas.configure(yscrollcommand=scroll.set)
+        frame=ttk.Frame(canvas); window_id=canvas.create_window((0,0),window=frame,anchor="nw"); frame.bind("<Configure>",lambda e:canvas.configure(scrollregion=canvas.bbox("all"))); canvas.bind("<Configure>",lambda e:canvas.itemconfigure(window_id,width=e.width))
+        count=tk.StringVar(value="尚未载入视频"); status=tk.StringVar(value="就绪")
+        def add_video(video,srt):
+            if any(str(item["video"]).casefold()==str(video).casefold() for item in rows): return
+            selected=tk.BooleanVar(value=True); item_frame=ttk.Frame(frame,padding=5); item_frame.pack(fill="x"); item_frame.columnconfigure(2,weight=1)
+            button=ttk.Button(item_frame,text="已选择",width=8,style="Selected.TButton",command=lambda:toggle(item)); button.grid(row=0,column=0,padx=(0,8)); ttk.Label(item_frame,text=video.name).grid(row=0,column=1,sticky="w"); ttk.Label(item_frame,text=f"SRT：{srt.name}",style="Muted.TLabel").grid(row=0,column=2,sticky="w",padx=8); progress=ttk.Progressbar(item_frame,maximum=100,length=120); progress.grid(row=0,column=3,padx=6); label=tk.StringVar(value="等待"); ttk.Label(item_frame,textvariable=label,width=10,style="Muted.TLabel").grid(row=0,column=4)
+            item={"video":video,"srt":srt,"selected":selected,"button":button,"frame":item_frame,"progress":progress,"label":label}; rows.append(item)
+        def toggle(item):
+            value=not item["selected"].get(); item["selected"].set(value); item["button"].configure(text="已选择" if value else "未选择",style="Selected.TButton" if value else "TButton"); count.set(f"已选择 {sum(x['selected'].get() for x in rows)} / {len(rows)} 个视频")
+        def refresh(): count.set(f"已选择 {sum(x['selected'].get() for x in rows)} / {len(rows)} 个视频")
+        def load_step():
+            for video,srt in videos: add_video(video,srt)
+            refresh()
+        def import_video():
+            for value in filedialog.askopenfilenames(parent=win,title="导入视频",filetypes=[("视频","*.mp4;*.mov;*.m4v;*.webm"),("所有文件","*.*")]):
+                video=Path(value).resolve(); srt=video.with_suffix(".srt")
+                if not srt.is_file(): srt=srt_dir/f"{video.stem}.srt"
+                if not srt.is_file():
+                    selected=filedialog.askopenfilename(parent=win,title=f"为 {video.name} 选择对应 SRT",filetypes=[("SRT 字幕","*.srt"),("所有文件","*.*")])
+                    if selected: srt=Path(selected).resolve()
+                if srt.is_file(): add_video(video,srt)
+            refresh()
+        def select_all():
+            for item in rows: item["selected"].set(True); item["button"].configure(text="已选择",style="Selected.TButton")
+            refresh()
+        actions=ttk.Frame(outer); actions.grid(row=2,column=0,sticky="ew",pady=(0,8)); ttk.Button(actions,text="读取步骤文件",command=load_step).pack(side="left"); ttk.Button(actions,text="手动导入视频",command=import_video).pack(side="left",padx=7); ttk.Button(actions,text="全选",command=select_all).pack(side="left"); ttk.Label(actions,textvariable=count,style="Muted.TLabel").pack(side="right")
+        footer=ttk.Frame(outer); footer.grid(row=4,column=0,sticky="ew",pady=(10,0)); ttk.Label(footer,textvariable=status,style="Muted.TLabel").pack(side="left")
+        def begin():
+            chosen=[x for x in rows if x["selected"].get()]
+            if not chosen: messagebox.showinfo("字幕剪辑","请至少选择一个视频",parent=win); return
+            if not self.llm_key.get().strip(): messagebox.showerror("字幕剪辑","请先在接口配置中填写 ChatGPT 接口 Key",parent=win); return
+            button.configure(state="disabled"); status.set("正在剪辑……")
+            def work():
+                good=0
+                for item in chosen:
+                    try:
+                        duration=media.probe_duration(asr.resolve_ffmpeg(),str(item["video"])); cues=voicevox_service.parse_srt(item["srt"].read_text(encoding="utf-8-sig")); ranges=ai.srt_deletion_plan(cues,duration,OPENAI_COMPAT_URL,self.llm_key.get(),OPENAI_COMPAT_MODEL,OPENAI_COMPAT_REASONING_EFFORT)
+                        try: plan=media.build_srt_cut_plan(cues,duration,ranges)
+                        except ValueError as first_error:
+                            ranges=ai.srt_deletion_plan(cues,duration,OPENAI_COMPAT_URL,self.llm_key.get(),OPENAI_COMPAT_MODEL,OPENAI_COMPAT_REASONING_EFFORT,str(first_error)); plan=media.build_srt_cut_plan(cues,duration,ranges)
+                        out=output_dir/f"{item['video'].stem}_剪辑.mp4"; media.execute_srt_cut(asr.resolve_ffmpeg(),str(item["video"]),plan,str(out)); media.write_cut_subtitles(cues,plan,str(output_dir/f"{item['video'].stem}_剪辑.srt"),str(output_dir/f"{item['video'].stem}_剪辑.txt")); good+=1; self.after(0,lambda i=item:(i["progress"].configure(value=100),i["label"].set("完成")))
+                    except Exception as exc: self.after(0,lambda i=item,e=exc:i["label"].set(f"失败：{e}"))
+                self.after(0,lambda: (button.configure(state="normal"),status.set(f"完成：{good}/{len(chosen)}")))
+            self.run(work)
+        button=ttk.Button(footer,text="开始字幕剪辑",style="Primary.TButton",command=begin); button.pack(side="right"); load_step()
     def transcribed_videos(self):
         if not self.project or not self.project.is_dir(): return []
-        return [video for video in rename_service.list_videos(self.project) if video.with_suffix(".txt").is_file() and video.with_suffix(".srt").is_file()]
+        source=self.step_directory(STEP_DOWNLOAD_DIR); transcripts=self.step_directory(STEP_TRANSCRIBE_DIR)
+        return [video for video in rename_service.list_videos(source) if (transcripts/f"{video.stem}.txt").is_file() and (transcripts/f"{video.stem}.srt").is_file()]
     def open_rewrite_window(self):
         if not self.project:
             messagebox.showinfo("AI 改写","请先选择项目目录",parent=self); return
@@ -722,7 +782,7 @@ class App(tk.Tk):
             if any(not name for name in output_names):
                 messagebox.showinfo("AI 改写","标题不能为空",parent=win); return
             batch_time=datetime.now().strftime("%Y%m%d_%H%M%S_%f")
-            output_dir=self.project/"AI改写结果"/f"改写批次_{batch_time}"
+            output_dir=self.step_directory(STEP_REWRITE_DIR)/f"改写批次_{batch_time}"
             output_dir.mkdir(parents=True,exist_ok=True)
             for row in result_tree.get_children(): result_tree.delete(row)
             for index,item in enumerate(chosen): result_tree.insert("","end",iid=str(index),text=item["title"],values=("等待中","-",""))
@@ -735,7 +795,8 @@ class App(tk.Tk):
             reasoning_effort=OPENAI_COMPAT_REASONING_EFFORT if compatible else None
             self.run(lambda:self.rewrite_batch(chosen,instruction,key,selected_model,base_url,reasoning_effort,output_dir,batch_time,result_tree,status,start_button,result_state,output_text,progress,progress_value,progress_text))
         start_button=ttk.Button(footer,text="开始生成",style="Primary.TButton",command=begin); start_button.grid(row=0,column=2,sticky="e")
-        add_files(sorted(self.project.glob("*.txt"),key=lambda path:path.name.casefold()))
+        cut_dir=self.step_directory(STEP_CUT_DIR)
+        add_files(sorted(cut_dir.glob("*.txt"),key=lambda path:path.name.casefold()))
     def manage_rewrite_prompts(self,parent,prompt,refresh_buttons):
         win=tk.Toplevel(parent); win.title("改写提示词管理"); win.geometry("760x520"); win.minsize(620,420)
         outer=ttk.Frame(win,padding=14); outer.pack(fill="both",expand=True); outer.columnconfigure(0,weight=1); outer.columnconfigure(1,weight=2); outer.rowconfigure(1,weight=1)
@@ -825,10 +886,12 @@ class App(tk.Tk):
         if widget.winfo_exists(): widget.configure(state="normal"); widget.delete("1.0","end"); widget.insert("1.0",f"{title}\n\n{text}"); widget.configure(state="disabled")
     def start_transcribe(self):
         if not self.project: self.log("转写失败：请先选择输出目录"); return
-        videos=[p for p in rename_service.list_videos(self.project) if not p.stem.endswith("_剪辑")]
+        download_dir=self.step_directory(STEP_DOWNLOAD_DIR)
+        videos=rename_service.list_videos(download_dir)
         if not videos: self.log("转写失败：输出目录中没有视频"); return
-        self.transcribe_counter+=1; batch_id=self.transcribe_counter; self.latest_transcribe_id=batch_id; controls=[downloader_service.DownloadControl() for _ in videos]; context={"project":self.project,"videos":videos,"controls":controls,"source_lang":self.source_lang.get(),"ffmpeg":self.ffmpeg.get(),"api_key":self.asr_key.get()}; self.transcribe_controls[batch_id]=controls; self.transcribe_contexts[batch_id]=context
-        saved_task=self.task_store.create("transcribe",f"文案与 SRT 批次 {batch_id}",str(self.project),[{"path":str(video),"name":video.name} for video in videos]); self.transcribe_task_ids[batch_id]=saved_task["id"]; self.task_store.update_task(saved_task["id"],status="运行中")
+        transcribe_dir=self.step_directory(STEP_TRANSCRIBE_DIR)
+        self.transcribe_counter+=1; batch_id=self.transcribe_counter; self.latest_transcribe_id=batch_id; controls=[downloader_service.DownloadControl() for _ in videos]; context={"project":transcribe_dir,"videos":videos,"output_directory":transcribe_dir,"controls":controls,"source_lang":self.source_lang.get(),"ffmpeg":self.ffmpeg.get(),"api_key":self.asr_key.get()}; self.transcribe_controls[batch_id]=controls; self.transcribe_contexts[batch_id]=context
+        saved_task=self.task_store.create("transcribe",f"文案与 SRT 批次 {batch_id}",str(transcribe_dir),[{"path":str(video),"name":video.name} for video in videos]); self.transcribe_task_ids[batch_id]=saved_task["id"]; self.task_store.update_task(saved_task["id"],status="运行中")
         self.open_transcribe_window(batch_id,videos,controls); self.run(lambda:self.transcribe(batch_id,context))
     def transcribe(self,batch_id,context):
         videos=context["videos"]; completed=0
@@ -839,7 +902,7 @@ class App(tk.Tk):
             nonlocal completed; index,video=item; completed+=1
             self.task_store.update_item(self.transcribe_task_ids[batch_id],index,error=str(error or ""))
             if batch_id==self.latest_transcribe_id:self.set_status(f"转写批次 {batch_id}：{completed}/{len(videos)}")
-            self.log(f"[转写批次 {batch_id} · {index+1}] 失败 {video.name}：{error}" if error else f"[转写批次 {batch_id} · {index+1}] 已生成原始和剪辑结果：{result[0]}、{result[1]}、{result[2]}、{result[3]}、{result[4]}")
+            self.log(f"[转写批次 {batch_id} · {index+1}] 失败 {video.name}：{error}" if error else f"[转写批次 {batch_id} · {index+1}] 已生成：{result[0]}、{result[1]}")
         results=run_batch(list(enumerate(videos)),operation,effective_workers,done,retries=3); ok=sum(1 for _,_,error in results if error is None)
         self.task_store.update_task(self.transcribe_task_ids[batch_id],status="完成" if ok==len(videos) else "部分失败")
         if batch_id==self.latest_transcribe_id:self.set_status(f"转写批次 {batch_id} 完成：成功 {ok}/{len(videos)}")
