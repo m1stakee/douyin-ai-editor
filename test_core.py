@@ -50,7 +50,7 @@ class TestCore(unittest.TestCase):
             srt=Path(folder)/"out.srt"; txt=Path(folder)/"out.txt"
             write_cut_subtitles(cues,plan,str(srt),str(txt))
             self.assertIn("00:00:00,000 --> 00:00:10,000",srt.read_text(encoding="utf-8-sig"))
-            self.assertIn("00:00:10,000 --> 00:00:20,000",srt.read_text(encoding="utf-8-sig"))
+            self.assertIn("00:00:09,670 --> 00:00:19,670",srt.read_text(encoding="utf-8-sig"))
             self.assertEqual(txt.read_text(encoding="utf-8-sig"),"开头\n结尾\n")
     @patch("license_client.requests.post")
     def test_license_verification_posts_to_server(self, post):

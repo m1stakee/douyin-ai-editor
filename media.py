@@ -4,6 +4,17 @@ import sys
 from pathlib import Path
 
 CUT_END_ADVANCE_SECONDS = 1.0
+CUT_TRANSITION_SECONDS = 0.33
+
+
+def _cut_transition_durations(plan: dict) -> list[float]:
+    durations=[]
+    elapsed=plan["kept"][0][1]-plan["kept"][0][0] if plan.get("kept") else 0.0
+    for start,end in plan.get("kept",[])[1:]:
+        clip_duration=end-start
+        fade=min(CUT_TRANSITION_SECONDS,max(0.02,clip_duration/4),max(0.02,elapsed/4))
+        durations.append(fade); elapsed+=clip_duration-fade
+    return durations
 
 def run_ffmpeg(ffmpeg: str, args: list[str]) -> None:
     p = subprocess.run([ffmpeg, *args], capture_output=True, text=True, encoding="utf-8", errors="replace", creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0)
@@ -96,19 +107,33 @@ def suggest_srt_deletion_ranges(cues, duration: float) -> list[dict]:
 
 
 def execute_srt_cut(ffmpeg: str, video: str, plan: dict, output: str) -> None:
-    """Concatenate retained video/audio intervals generated from an SRT plan."""
+    """Cut retained intervals and join them with a short fade to suppress boundary flashes."""
     clips, filters = [], []
+    transitions = _cut_transition_durations(plan)
     for i, (start, end) in enumerate(plan["kept"]):
-        # Rebuild timestamps from frame/sample sequence at every cut boundary.
-        # This avoids a stale PTS causing a one-frame flash when concat joins clips.
-        filters.append(f"[0:v]trim=start={start:.3f}:end={end:.3f},settb=AVTB,setpts=N/(FRAME_RATE*TB)[v{i}]")
+        filters.append(f"[0:v]trim=start={start:.3f}:end={end:.3f},settb=AVTB,fps=30,setpts=PTS-STARTPTS[v{i}]")
         filters.append(f"[0:a]atrim=start={start:.3f}:end={end:.3f},asetpts=N/SR/TB[a{i}]")
         clips.append(f"[v{i}][a{i}]")
     if not clips:
         raise ValueError("没有可保留的视频片段")
-    filters.append("".join(clips) + f"concat=n={len(clips)}:v=1:a=1[outv][joined_a]")
-    filters.append("[joined_a]aresample=async=1:first_pts=0[outa]")
-    run_ffmpeg(ffmpeg, ["-y", "-fflags", "+genpts", "-i", video, "-filter_complex", ";".join(filters), "-map", "[outv]", "-map", "[outa]", "-c:v", "libx264", "-preset", "medium", "-crf", "18", "-fps_mode", "cfr", "-c:a", "aac", "-pix_fmt", "yuv420p", "-avoid_negative_ts", "make_zero", "-movflags", "+faststart", "-shortest", output])
+    if len(clips) == 1:
+        filters.append("[v0]setpts=PTS-STARTPTS[outv]")
+        filters.append("[a0]aresample=async=1:first_pts=0[outa]")
+    else:
+        current_v, current_a = "v0", "a0"
+        elapsed = plan["kept"][0][1] - plan["kept"][0][0]
+        for i in range(1, len(clips)):
+            clip_duration = plan["kept"][i][1] - plan["kept"][i][0]
+            fade = transitions[i-1]
+            next_v, next_a = f"xfv{i}", f"xfa{i}"
+            offset = max(0.0, elapsed - fade)
+            filters.append(f"[{current_v}][v{i}]xfade=transition=fade:duration={fade:.3f}:offset={offset:.3f}[{next_v}]")
+            filters.append(f"[{current_a}][a{i}]acrossfade=d={fade:.3f}:curve1=tri:curve2=tri[{next_a}]")
+            current_v, current_a = next_v, next_a
+            elapsed += clip_duration - fade
+        filters.append(f"[{current_v}]setpts=PTS-STARTPTS[outv]")
+        filters.append(f"[{current_a}]aresample=async=1:first_pts=0[outa]")
+    run_ffmpeg(ffmpeg, ["-y", "-fflags", "+genpts", "-i", video, "-filter_complex", ";".join(filters), "-map", "[outv]", "-map", "[outa]", "-c:v", "libx264", "-preset", "medium", "-crf", "18", "-fps_mode", "cfr", "-c:a", "aac", "-pix_fmt", "yuv420p", "-avoid_negative_ts", "make_zero", "-start_at_zero", "-movflags", "+faststart", "-shortest", output])
 
 
 def write_cut_subtitles(cues, plan: dict, srt_output: str, text_output: str) -> None:
@@ -117,12 +142,13 @@ def write_cut_subtitles(cues, plan: dict, srt_output: str, text_output: str) -> 
     rows = []
     deleted = sorted(plan["deleted"])
     for cue in cues:
-        containing = next(((start, end) for start, end in kept if cue.start >= start - 0.01 and cue.end <= end + 0.01), None)
-        if containing is None:
+        kept_index = next((i for i,(start,end) in enumerate(kept) if cue.start >= start - 0.01 and cue.end <= end + 0.01), None)
+        if kept_index is None:
             continue
         removed_before = sum(end - start for start, end, _, _ in deleted if end <= cue.start)
-        new_start = max(0.0, cue.start - removed_before)
-        new_end = max(new_start + 0.001, cue.end - removed_before)
+        overlap_before = sum(_cut_transition_durations(plan)[:kept_index])
+        new_start = max(0.0, cue.start - removed_before - overlap_before)
+        new_end = max(new_start + 0.001, cue.end - removed_before - overlap_before)
         rows.append((new_start, new_end, cue.text))
     def stamp(seconds: float) -> str:
         millis = max(0, round(seconds * 1000)); hours, millis = divmod(millis, 3600000); minutes, millis = divmod(millis, 60000); secs, millis = divmod(millis, 1000)
