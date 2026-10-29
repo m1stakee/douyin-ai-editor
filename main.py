@@ -24,6 +24,7 @@ STEP_TRANSCRIBE_DIR="2_文案与SRT"
 STEP_CUT_DIR="3_字幕剪辑"
 STEP_REWRITE_DIR="4_AI改写"
 STEP_VOICE_DIR="5_语音转出"
+STEP_LIBRARY_DIR="6_资源库"
 
 class App(tk.Tk):
     def __init__(self):
@@ -39,10 +40,11 @@ class App(tk.Tk):
         self.ffmpeg=tk.StringVar(value=asr.resolve_ffmpeg())
         self.download_key=tk.StringVar(value=saved.get("henghengmao_api_key", "")); self.asr_key=tk.StringVar(value=saved.get("dashscope_api_key") or dashscope_key())
         self.download_quality=tk.StringVar(value=saved.get("download_quality","推荐")); self.download_workers=tk.StringVar(value=saved.get("download_workers","8")); self.source_lang=tk.StringVar(value=saved.get("source_lang","中文"))
-        self.llm_url=tk.StringVar(value=saved.get("llm_base_url") or saved.get("llm_url",OPENAI_COMPAT_URL)); self.llm_key=tk.StringVar(value=saved.get("llm_key","")); self.llm_model=tk.StringVar(value=saved.get("llm_model",OPENAI_COMPAT_MODEL)); self.llm_models=[]; self.ark_key=tk.StringVar(value=saved.get("ark_api_key") or ark_key()); self.lang=tk.StringVar(value=saved.get("target_lang","英语"))
+        self.llm_url=tk.StringVar(value=saved.get("llm_base_url") or saved.get("llm_url",OPENAI_COMPAT_URL)); self.llm_key=tk.StringVar(value=saved.get("llm_key","")); self.llm_model=tk.StringVar(value=saved.get("llm_model",OPENAI_COMPAT_MODEL)); self.llm_models=[]; self.answer_directory=tk.StringVar(value=saved.get("answer_directory","")); self.anti_flash_directory=tk.StringVar(value=saved.get("anti_flash_directory","")); self.library_directory=tk.StringVar(value=saved.get("library_directory","")); self.ark_key=tk.StringVar(value=saved.get("ark_api_key") or ark_key()); self.lang=tk.StringVar(value=saved.get("target_lang","英语"))
         self.style=tk.StringVar(value=saved.get("writing_style","自然口播")); self.length=tk.StringVar(value=saved.get("writing_length","保持原时长"))
         self.license_key=tk.StringVar(value=saved.get("license_key", ""))
-        self.voicevox_path=tk.StringVar(value=saved.get("voicevox_path", "")); self.voicevox_voice=tk.StringVar(value=saved.get("voicevox_voice", "")); self.voicevox_speed=tk.StringVar(value=saved.get("voicevox_speed", "1.0")); self.voicevox_pitch=tk.StringVar(value=saved.get("voicevox_pitch", "0.0")); self.voicevox_volume=tk.StringVar(value=saved.get("voicevox_volume", "1.0")); self.voicevox_pause=tk.StringVar(value=saved.get("voicevox_pause", "0.3")); self.voicevox_output_directory=tk.StringVar(value=saved.get("voicevox_output_directory", "")); self.voicevox_output_format=tk.StringVar(value=str(saved.get("voicevox_output_format", "WAV")).upper()); self.voicevox_use_gpu=tk.BooleanVar(value=saved.get("voicevox_use_gpu", False)); self.voicevox_process=None; self.voicevox_process_gpu=None; self.voicevox_window=None
+        saved_format=str(saved.get("voicevox_output_format", "MP3")).upper(); saved_format=saved_format if saved_format in {"WAV","MP3","M4A","FLAC"} else "MP3"
+        self.voicevox_path=tk.StringVar(value=saved.get("voicevox_path", "")); self.voicevox_voice=tk.StringVar(value=saved.get("voicevox_voice", "")); self.voicevox_speed=tk.StringVar(value=saved.get("voicevox_speed", "1.0")); self.voicevox_pitch=tk.StringVar(value=saved.get("voicevox_pitch", "0.0")); self.voicevox_volume=tk.StringVar(value=saved.get("voicevox_volume", "1.0")); self.voicevox_pause=tk.StringVar(value=saved.get("voicevox_pause", "0.3")); self.voicevox_output_directory=tk.StringVar(value=saved.get("voicevox_output_directory", "")); self.voicevox_output_format=tk.StringVar(value=saved_format); self.voicevox_use_gpu=tk.BooleanVar(value=saved.get("voicevox_use_gpu", False)); self.voicevox_process=None; self.voicevox_process_gpu=None; self.voicevox_window=None
         self.status=tk.StringVar(value="就绪"); self.task_store=TaskStore(); self.task_center_window=None; self.task_center_tree=None; self.batch_task_ids={}; self.transcribe_task_ids={}
         self.project_text=tk.StringVar(value=f"输出到：{self.project}" if self.project else "尚未选择输出目录")
         self._setup_style()
@@ -91,7 +93,7 @@ class App(tk.Tk):
         self.url_text=tk.Text(source,height=8,wrap="word",font=("Microsoft YaHei UI",10),bg="#F8FAFC",fg="#203047",insertbackground="#F06449",relief="flat",padx=11,pady=10,highlightthickness=1,highlightbackground="#D5DCE5",highlightcolor="#F06449"); self.url_text.grid(row=2,column=0,sticky="nsew")
         directory=ttk.Frame(source,style="Panel.TFrame"); directory.grid(row=3,column=0,sticky="ew",pady=(11,0)); ttk.Label(directory,textvariable=self.project_text,style="Muted.TLabel").pack(side="left",fill="x",expand=True); ttk.Button(directory,text="选择目录",command=self.choose_project).pack(side="left",padx=5); ttk.Button(directory,text="打开目录",command=self.open_project).pack(side="left")
         flow=ttk.Frame(source,style="Panel.TFrame"); flow.grid(row=4,column=0,sticky="ew",pady=(14,0))
-        ttk.Button(flow,text="1  下载视频",style="Primary.TButton",command=self.start_download).pack(side="left",padx=(0,7)); ttk.Button(flow,text="2  生成文案与 SRT",style="Flow.TButton",command=self.start_transcribe).pack(side="left",padx=7); ttk.Button(flow,text="4  AI 改写",style="Flow.TButton",command=self.open_rewrite_window).pack(side="left",padx=7); ttk.Button(flow,text="5  语音转出",style="Flow.TButton",command=self.open_voicevox_window).pack(side="left",padx=7)
+        ttk.Button(flow,text="1  下载视频",style="Primary.TButton",command=self.start_download).pack(side="left",padx=(0,7)); ttk.Button(flow,text="2  生成文案与 SRT",style="Flow.TButton",command=self.start_transcribe).pack(side="left",padx=7); ttk.Button(flow,text="3  生成答案",style="Flow.TButton",command=self.start_cutting_answers).pack(side="left",padx=7); ttk.Button(flow,text="4  AI 改写",style="Flow.TButton",command=self.open_rewrite_window).pack(side="left",padx=7); ttk.Button(flow,text="5  语音转出",style="Flow.TButton",command=self.open_voicevox_window).pack(side="left",padx=7); ttk.Button(flow,text="6  资源库",style="Flow.TButton",command=self.open_library_window).pack(side="left",padx=7)
         self.progress=ttk.Progressbar(source,orient="horizontal",mode="determinate",maximum=100); self.progress.grid(row=5,column=0,sticky="ew",pady=(10,0))
         task_box=ttk.Frame(source,style="Panel.TFrame"); task_box.grid(row=6,column=0,sticky="ew",pady=(9,0)); task_box.columnconfigure(0,weight=1)
         ttk.Label(task_box,text="各视频下载进度",style="Muted.TLabel").grid(row=0,column=0,sticky="w",pady=(0,5))
@@ -126,7 +128,7 @@ class App(tk.Tk):
         if self.advanced.winfo_manager(): self.advanced.grid_remove(); self.advanced_button.configure(text="展开接口与工具配置")
         else: self.advanced.grid(row=5,column=0,sticky="ew"); self.advanced_button.configure(text="收起接口与工具配置")
     def settings_values(self):
-        return {"output_directory":str(self.project or ""),"download_quality":self.download_quality.get(),"download_workers":self.download_workers.get(),"source_lang":self.source_lang.get(),"henghengmao_api_key":self.download_key.get(),"dashscope_api_key":self.asr_key.get(),"llm_base_url":self.llm_url.get().strip(),"llm_key":self.llm_key.get(),"llm_model":self.llm_model.get(),"ark_api_key":self.ark_key.get(),"target_lang":self.lang.get(),"writing_style":self.style.get(),"writing_length":self.length.get(),"license_key":self.license_key.get(),"voicevox_path":self.voicevox_path.get(),"voicevox_voice":self.voicevox_voice.get(),"voicevox_speed":self.voicevox_speed.get(),"voicevox_pitch":self.voicevox_pitch.get(),"voicevox_volume":self.voicevox_volume.get(),"voicevox_pause":self.voicevox_pause.get(),"voicevox_output_directory":self.voicevox_output_directory.get(),"voicevox_output_format":self.voicevox_output_format.get(),"voicevox_use_gpu":self.voicevox_use_gpu.get(),"rewrite_prompts":self.rewrite_prompts}
+        return {"output_directory":str(self.project or ""),"download_quality":self.download_quality.get(),"download_workers":self.download_workers.get(),"source_lang":self.source_lang.get(),"henghengmao_api_key":self.download_key.get(),"dashscope_api_key":self.asr_key.get(),"llm_base_url":self.llm_url.get().strip(),"llm_key":self.llm_key.get(),"llm_model":self.llm_model.get(),"answer_directory":self.answer_directory.get(),"anti_flash_directory":self.anti_flash_directory.get(),"library_directory":self.library_directory.get(),"ark_api_key":self.ark_key.get(),"target_lang":self.lang.get(),"writing_style":self.style.get(),"writing_length":self.length.get(),"license_key":self.license_key.get(),"voicevox_path":self.voicevox_path.get(),"voicevox_voice":self.voicevox_voice.get(),"voicevox_speed":self.voicevox_speed.get(),"voicevox_pitch":self.voicevox_pitch.get(),"voicevox_volume":self.voicevox_volume.get(),"voicevox_pause":self.voicevox_pause.get(),"voicevox_output_directory":self.voicevox_output_directory.get(),"voicevox_output_format":self.voicevox_output_format.get(),"voicevox_use_gpu":self.voicevox_use_gpu.get(),"rewrite_prompts":self.rewrite_prompts}
     def fetch_llm_models(self):
         self.status.set("正在获取模型列表…")
         def work():
@@ -238,13 +240,24 @@ class App(tk.Tk):
                 if path.suffix.lower()!=".txt" or str(path).casefold() in existing: continue
                 add_script_row(path); existing.add(str(path).casefold()); added+=1
             if added: refresh_file_count(); operation_var.set(f"已导入 {len(file_rows)} 个文案")
+        def recognize_script_directory():
+            initial=self.project/STEP_REWRITE_DIR if self.project else Path.cwd()
+            selected=filedialog.askdirectory(parent=win,title="选择第四步文案目录",initialdir=str(initial))
+            if not selected: return
+            existing={str(row["path"]).casefold() for row in file_rows}; added=0
+            for path in sorted(Path(selected).glob("*答案1.txt"),key=lambda item:item.name.casefold()):
+                path=path.resolve()
+                if str(path).casefold() in existing: continue
+                add_script_row(path); existing.add(str(path).casefold()); added+=1
+            refresh_file_count(); operation_var.set(f"已从目录识别 {added} 个文案")
         def select_all_scripts():
             for row in file_rows: row["selected"].set(True); refresh_script_selection(row)
             refresh_file_count()
         def clear_scripts():
             for row in list(file_rows): row["frame"].destroy()
             file_rows.clear(); refresh_file_count(); operation_var.set("文案列表已清除")
-        ttk.Button(file_actions,text="导入文件",command=import_scripts).pack(side="left")
+        ttk.Button(file_actions,text="识别目录",command=recognize_script_directory).pack(side="left")
+        ttk.Button(file_actions,text="导入文件",command=import_scripts).pack(side="left",padx=(6,0))
         ttk.Button(file_actions,text="全选",command=select_all_scripts).pack(side="left",padx=6)
         ttk.Button(file_actions,text="清除",command=clear_scripts).pack(side="left")
         ttk.Label(file_actions,textvariable=file_count,style="Muted.TLabel").pack(side="right")
@@ -685,7 +698,52 @@ class App(tk.Tk):
                         item["detail"]=f"失败：{exc}"; self.after(0,lambda i=item:(i["progress"].configure(value=0),i["label"].set("失败（查看详情）")))
                 self.after(0,lambda: (button.configure(state="normal"),status.set(f"完成：{good}/{len(chosen)}")))
             self.run(work)
-        button=ttk.Button(footer,text="开始字幕剪辑",style="Primary.TButton",command=begin); button.pack(side="right"); load_step()
+    def start_cutting_answers(self):
+        """Generate the subtitle deletion answer file; external tools perform the actual cut."""
+        video=filedialog.askopenfilename(parent=self,title="选择原视频",filetypes=[("视频","*.mp4;*.mov;*.mkv;*.webm;*.m4v"),("所有文件","*.*")])
+        if not video: return
+        srt=filedialog.askopenfilename(parent=self,title="选择原视频 SRT",filetypes=[("SRT 字幕","*.srt"),("所有文件","*.*")])
+        if not srt: return
+        initial=self.answer_directory.get().strip() or str(Path(video).parent)
+        directory=filedialog.askdirectory(parent=self,title="选择答案输出目录",initialdir=initial)
+        if not directory: return
+        output_dir=Path(directory).expanduser()
+        if not output_dir.is_dir(): messagebox.showerror("生成答案","选择的目录不存在，软件不会自动创建目录",parent=self); return
+        self.answer_directory.set(str(output_dir)); self.save_all_settings(False)
+        video_path=Path(video); srt_path=Path(srt); answer_path=output_dir/f"{video_path.stem}答案1.txt"
+        if not self.llm_key.get().strip(): messagebox.showerror("生成答案","请先在接口与工具配置中填写 ChatGPT 接口 Key",parent=self); return
+        if answer_path.exists() and not messagebox.askyesno("覆盖文件",f"文件已存在：{answer_path.name}\n是否覆盖？",parent=self): return
+        self.status.set("正在生成答案…")
+        def work():
+            try:
+                cues=voicevox_service.parse_srt(read_text(srt_path)); duration=media.probe_duration(asr.resolve_ffmpeg(),str(video_path))
+                ranges=ai.srt_deletion_plan(cues,duration,self.llm_url.get(),self.llm_key.get(),self.llm_model.get(),OPENAI_COMPAT_REASONING_EFFORT)
+                try: plan=media.build_srt_cut_plan(cues,duration,ranges)
+                except ValueError as first_error:
+                    ranges=ai.srt_deletion_plan(cues,duration,self.llm_url.get(),self.llm_key.get(),self.llm_model.get(),OPENAI_COMPAT_REASONING_EFFORT,str(first_error)); plan=media.build_srt_cut_plan(cues,duration,ranges)
+                media.write_cut_plan_result(cues,plan,str(answer_path))
+                for source in (video_path,srt_path):
+                    target=output_dir/source.name
+                    if source.resolve()!=target.resolve(): shutil.copy2(source,target)
+                self.after(0,lambda:self.status.set(f"答案已生成：{answer_path.name}"))
+            except Exception as exc: self.after(0,lambda e=exc: (self.status.set("生成答案失败"),messagebox.showerror("生成答案失败",str(e),parent=self)))
+        self.run(work)
+    def open_library_window(self):
+        win=tk.Toplevel(self); win.title("资源库"); win.geometry("760x390"); win.columnconfigure(1,weight=1)
+        desktop=Path.home()/"Desktop"/"工作目录"; defaults=[("去闪视频目录",self.anti_flash_directory.get() or str(desktop/"2_去闪光")),("日文文案目录",str(self.project/STEP_REWRITE_DIR if self.project else "")),("日文语音目录",str(self.project/STEP_VOICE_DIR if self.project else "")),("资源库目录",self.library_directory.get() or str(desktop/"6_资源库"))]
+        vars=[]
+        for row,(label,value) in enumerate(defaults):
+            var=tk.StringVar(value=value); vars.append(var); ttk.Label(win,text=label).grid(row=row,column=0,sticky="w",padx=12,pady=8); ttk.Entry(win,textvariable=var).grid(row=row,column=1,sticky="ew",padx=8,pady=8); ttk.Button(win,text="选择",command=lambda v=var: v.set(filedialog.askdirectory(parent=win) or v.get())).grid(row=row,column=2,padx=8)
+        result=tk.StringVar(value=""); ttk.Label(win,textvariable=result,wraplength=700).grid(row=4,column=0,columnspan=3,sticky="w",padx=12,pady=8)
+        def copy_resources():
+            video_dir,text_dir,audio_dir,out_dir=[Path(v.get()).expanduser() for v in vars]
+            if any(not p.is_dir() for p in (video_dir,text_dir,audio_dir,out_dir)): messagebox.showerror("资源库","所有目录都必须已存在，软件不会自动创建",parent=win); return
+            vids={p.stem:p for p in video_dir.iterdir() if p.suffix.lower() in {".mp4",".mov",".mkv",".webm",".m4v"}}; texts={p.stem:p for p in text_dir.glob("*.txt")}; audios={p.stem:p for p in audio_dir.iterdir() if p.suffix.lower() in {".mp3",".wav",".m4a",".flac"}}; keys=sorted(set(vids)&set(texts)&set(audios)); missing=[]
+            for stem in sorted(set(vids)|set(texts)|set(audios)):
+                if stem not in vids or stem not in texts or stem not in audios: missing.append(stem); continue
+                for mapping in (vids,texts,audios): shutil.copy2(mapping[stem],out_dir/mapping[stem].name)
+            self.anti_flash_directory.set(str(video_dir)); self.library_directory.set(str(out_dir)); self.save_all_settings(False); result.set(f"已复制 {len(keys)} 组资源" + (f"；缺少：{', '.join(missing[:10])}" if missing else ""))
+        ttk.Button(win,text="复制到资源库",style="Primary.TButton",command=copy_resources).grid(row=5,column=2,padx=8,pady=16)
     def transcribed_videos(self):
         if not self.project or not self.project.is_dir(): return []
         source=self.step_directory(STEP_DOWNLOAD_DIR); transcripts=self.step_directory(STEP_TRANSCRIBE_DIR)
@@ -711,8 +769,8 @@ class App(tk.Tk):
         refresh_prompt_buttons()
         if self.rewrite_prompts: use_prompt(self.rewrite_prompts[0])
         source_bar=ttk.Frame(outer); source_bar.grid(row=3,column=0,sticky="ew",pady=(0,8)); source_bar.columnconfigure(3,weight=1)
-        ttk.Button(source_bar,text="读取目录 SRT",command=lambda:load_directory()).grid(row=0,column=0,sticky="w")
-        ttk.Button(source_bar,text="导入 SRT（可多选）",command=lambda:import_files()).grid(row=0,column=1,sticky="w",padx=(7,0))
+        ttk.Button(source_bar,text="读取答案目录",command=lambda:load_directory()).grid(row=0,column=0,sticky="w")
+        ttk.Button(source_bar,text="导入答案 TXT（可多选）",command=lambda:import_files()).grid(row=0,column=1,sticky="w",padx=(7,0))
         clear_all_button=ttk.Button(source_bar,text="一键清空",command=lambda:clear_all()); clear_all_button.grid(row=0,column=2,sticky="w",padx=(7,0))
         count=tk.StringVar(value="尚未载入文案"); ttk.Label(source_bar,textvariable=count,style="Muted.TLabel").grid(row=0,column=3,sticky="e")
         title_row=ttk.Frame(outer); title_row.grid(row=4,column=0,sticky="ew",pady=(0,7)); ttk.Label(title_row,text="标题",style="Section.TLabel").pack(side="left")
@@ -742,26 +800,28 @@ class App(tk.Tk):
             added=[]
             for path in paths:
                 path=Path(path)
-                if path.suffix.lower() != ".srt" or not path.is_file() or str(path.resolve()).casefold() in existing: continue
-                try: text=read_rewrite_source(path)
+                if path.suffix.lower() != ".txt" or not path.name.endswith("答案1.txt") or not path.is_file() or str(path.resolve()).casefold() in existing: continue
+                try: text=read_text(path).strip()
                 except (OSError,UnicodeError) as exc:
                     messagebox.showwarning("导入文案",f"无法读取 {path.name}：{exc}",parent=win); continue
                 except ValueError as exc:
                     messagebox.showwarning("导入文案",f"无法解析 {path.name}：{exc}",parent=win); continue
                 if not text: continue
-                entries.append({"path":path,"title":path.stem,"text":text}); existing.add(str(path.resolve()).casefold()); added.append(len(entries)-1)
+                entry_title=re.sub(r"答案1$","",path.stem).strip() or path.stem
+                entries.append({"path":path,"title":entry_title,"text":text}); existing.add(str(path.resolve()).casefold()); added.append(len(entries)-1)
             if added: show_entry(added[0])
-            elif not entries: count.set("没有可用的 SRT 字幕")
+            elif not entries: count.set("没有可用的答案 TXT")
             if entries: previous_button.configure(state="normal"); next_button.configure(state="normal")
         def clear_all():
             save_current(); entries.clear(); current[0]=0; loading[0]=True
             title.set(""); content.delete("1.0","end"); loading[0]=False
-            count.set("已清空，请重新导入 SRT"); previous_button.configure(state="disabled"); next_button.configure(state="disabled")
+            count.set("已清空，请重新导入答案 TXT"); previous_button.configure(state="disabled"); next_button.configure(state="disabled")
         def load_directory():
-            directory=filedialog.askdirectory(title="选择包含 SRT 字幕的目录",initialdir=str(self.project),parent=win)
-            if directory: add_files(sorted(Path(directory).glob("*.srt"),key=lambda path:path.name.casefold()))
+            directory=filedialog.askdirectory(title="选择包含答案1.txt的目录",initialdir=self.answer_directory.get() or str(self.project),parent=win)
+            if directory:
+                self.answer_directory.set(directory); self.save_all_settings(False); add_files(sorted(Path(directory).glob("*答案1.txt"),key=lambda path:path.name.casefold()))
         def import_files():
-            paths=filedialog.askopenfilenames(title="导入 SRT 字幕",initialdir=str(self.project),filetypes=[("SRT 字幕","*.srt")],parent=win)
+            paths=filedialog.askopenfilenames(title="导入答案 TXT",initialdir=self.answer_directory.get() or str(self.project),filetypes=[("答案 TXT","*答案1.txt")],parent=win)
             if paths: add_files(paths)
         title_entry.bind("<FocusOut>",lambda _event:save_current()); content.bind("<FocusOut>",lambda _event:save_current())
         options=ttk.Frame(outer); options.grid(row=7,column=0,sticky="ew",pady=(10,0)); status=tk.StringVar(value=f"统一使用主配置模型：{self.llm_model.get()}")
@@ -818,15 +878,14 @@ class App(tk.Tk):
         def begin():
             save_current(); chosen=[dict(item) for item in entries]; instruction=prompt.get("1.0","end").strip(); selected_provider="New API"; compatible=True
             key=self.llm_key.get().strip(); selected_model=self.llm_model.get().strip(); base_url=self.llm_url.get().strip()
-            if not chosen: messagebox.showinfo("AI 改写","请先从目录读取或导入 SRT 字幕",parent=win); return
+            if not chosen: messagebox.showinfo("AI 改写","请先从目录读取或导入答案 TXT",parent=win); return
             if not instruction: messagebox.showinfo("AI 改写","请填写改写提示词",parent=win); return
             if not key: messagebox.showerror("AI 改写","请先在接口与工具配置中填写所选服务的 API Key",parent=win); return
             output_names=[rename_service.safe_stem(item["title"]) for item in chosen]
             if any(not name for name in output_names):
                 messagebox.showinfo("AI 改写","标题不能为空",parent=win); return
             batch_time=datetime.now().strftime("%Y%m%d_%H%M%S_%f")
-            output_dir=self.step_directory(STEP_REWRITE_DIR)/f"改写批次_{batch_time}"
-            output_dir.mkdir(parents=True,exist_ok=True)
+            output_dir=self.step_directory(STEP_REWRITE_DIR)
             for row in result_tree.get_children(): result_tree.delete(row)
             for index,item in enumerate(chosen): result_tree.insert("","end",iid=str(index),text=item["title"],values=("等待中","-","",""))
             result_state["results"]={}; result_tree.selection_set("0"); result_tree.focus("0"); self._set_rewrite_output(output_text,chosen[0]["title"],"等待改写...")
@@ -839,10 +898,8 @@ class App(tk.Tk):
             self.run(lambda:self.rewrite_batch(list(enumerate(chosen)),instruction,key,selected_model,base_url,OPENAI_COMPAT_REASONING_EFFORT,output_dir,batch_time,result_tree,status,start_button,batch_retry_button,result_state,output_text,progress,progress_value,progress_text))
         batch_retry_button=ttk.Button(footer,text="批量重试失败项",command=retry_failed,state="disabled"); batch_retry_button.grid(row=0,column=2,sticky="e",padx=(0,8))
         start_button=ttk.Button(footer,text="开始生成",style="Primary.TButton",command=begin); start_button.grid(row=0,column=3,sticky="e")
-        cut_dir=self.step_directory(STEP_CUT_DIR)
-        # Step 4 follows the retimed subtitle produced by step 3. The subtitle
-        # parser removes cue numbers and timestamps before sending copy to AI.
-        add_files(sorted(cut_dir.glob("*_剪辑.srt"),key=lambda path:path.name.casefold()))
+        answer_dir=Path(self.answer_directory.get()).expanduser() if self.answer_directory.get().strip() else None
+        if answer_dir and answer_dir.is_dir(): add_files(sorted(answer_dir.glob("*答案1.txt"),key=lambda path:path.name.casefold()))
     def manage_rewrite_prompts(self,parent,prompt,refresh_buttons):
         win=tk.Toplevel(parent); win.title("改写提示词管理"); win.geometry("760x520"); win.minsize(620,420)
         outer=ttk.Frame(win,padding=14); outer.pack(fill="both",expand=True); outer.columnconfigure(0,weight=1); outer.columnconfigure(1,weight=2); outer.rowconfigure(1,weight=1)

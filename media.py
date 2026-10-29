@@ -159,7 +159,7 @@ def write_cut_subtitles(cues, plan: dict, srt_output: str, text_output: str) -> 
     write_text(text_output, "\n".join(text for _, _, text in rows) + ("\n" if rows else ""))
 
 
-def write_cut_plan_result(cues, plan: dict, output: str) -> None:
+def write_cut_plan_result(cues, plan: dict, output: str) -> str:
     """Save the clipping plan in the same format shown in the UI/prompt."""
     def stamp(seconds: float) -> str:
         total = max(0, round(float(seconds)))
@@ -186,3 +186,4 @@ def write_cut_plan_result(cues, plan: dict, output: str) -> None:
     result = "\n\n".join(entries)
     result += f"\n\n预计剪掉时长：{duration_text(plan.get('deleted_seconds', 0))}；保留时长：{duration_text(plan.get('kept_seconds', 0))}。\n"
     write_text(output, result)
+    return result
