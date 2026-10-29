@@ -343,6 +343,14 @@ class TestCore(unittest.TestCase):
         self.assertIn("self.ffmpeg=tk.StringVar(value=asr.resolve_ffmpeg())", source)
         self.assertNotIn('asr.resolve_ffmpeg(saved.get("ffmpeg")', source)
 
+    def test_main_hides_step_three_button(self):
+        source = Path(__file__).with_name("main.py").read_text(encoding="utf-8")
+        build_source = source.split("    def build(self):", 1)[1].split(
+            "    def _scroll_main_window", 1
+        )[0]
+        self.assertNotIn('text="3  字幕剪辑"', build_source)
+        self.assertIn('text="4  AI 改写"', build_source)
+
     def test_load_settings_returns_empty_for_invalid_json(self):
         from tempfile import TemporaryDirectory
         with TemporaryDirectory() as folder:
