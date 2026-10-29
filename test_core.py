@@ -79,7 +79,7 @@ class TestCore(unittest.TestCase):
         self.assertNotIn('win.after_idle(recognize_directory)',source)
         self.assertIn('for path in directory.glob("*.srt")',source)
         self.assertIn('source_dir=self.project/STEP_DOWNLOAD_DIR',source)
-        self.assertIn('run_batch(pairs,operation,workers=min(8,len(pairs)),retries=3)',source)
+        self.assertIn('run_batch(targets,operation,workers=min(8,len(targets)),retries=3)',source)
         self.assertIn('text="失败项重试"',source)
 
     def test_library_rows_have_open_directory_actions(self):
