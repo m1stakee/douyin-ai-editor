@@ -33,6 +33,7 @@ class App(tk.Tk):
         stored_prompts=saved.get("rewrite_prompts")
         defaults=[{"name":name,"text":text} for name,text in DEFAULT_REWRITE_PROMPTS.items()]
         self.rewrite_prompts=stored_prompts if isinstance(stored_prompts,list) else defaults
+        stored_cut_prompts=saved.get("cut_prompts"); self.cut_prompts=stored_cut_prompts if isinstance(stored_cut_prompts,list) and stored_cut_prompts else [{"name":"默认剪辑方案","text":ai.SRT_DELETION_PROMPT}]
         if len(self.rewrite_prompts)==5 and all(item.get("name") in DEFAULT_REWRITE_PROMPTS for item in self.rewrite_prompts):
             missing=[item for item in defaults if item["name"] not in {saved_item.get("name") for saved_item in self.rewrite_prompts}]
             self.rewrite_prompts.extend(missing)
@@ -128,7 +129,7 @@ class App(tk.Tk):
         if self.advanced.winfo_manager(): self.advanced.grid_remove(); self.advanced_button.configure(text="展开接口与工具配置")
         else: self.advanced.grid(row=5,column=0,sticky="ew"); self.advanced_button.configure(text="收起接口与工具配置")
     def settings_values(self):
-        return {"output_directory":str(self.project or ""),"download_quality":self.download_quality.get(),"download_workers":self.download_workers.get(),"source_lang":self.source_lang.get(),"henghengmao_api_key":self.download_key.get(),"dashscope_api_key":self.asr_key.get(),"llm_base_url":self.llm_url.get().strip(),"llm_key":self.llm_key.get(),"llm_model":self.llm_model.get(),"answer_directory":self.answer_directory.get(),"anti_flash_directory":self.anti_flash_directory.get(),"library_directory":self.library_directory.get(),"ark_api_key":self.ark_key.get(),"target_lang":self.lang.get(),"writing_style":self.style.get(),"writing_length":self.length.get(),"license_key":self.license_key.get(),"voicevox_path":self.voicevox_path.get(),"voicevox_voice":self.voicevox_voice.get(),"voicevox_speed":self.voicevox_speed.get(),"voicevox_pitch":self.voicevox_pitch.get(),"voicevox_volume":self.voicevox_volume.get(),"voicevox_pause":self.voicevox_pause.get(),"voicevox_output_directory":self.voicevox_output_directory.get(),"voicevox_output_format":self.voicevox_output_format.get(),"voicevox_use_gpu":self.voicevox_use_gpu.get(),"rewrite_prompts":self.rewrite_prompts}
+        return {"output_directory":str(self.project or ""),"download_quality":self.download_quality.get(),"download_workers":self.download_workers.get(),"source_lang":self.source_lang.get(),"henghengmao_api_key":self.download_key.get(),"dashscope_api_key":self.asr_key.get(),"llm_base_url":self.llm_url.get().strip(),"llm_key":self.llm_key.get(),"llm_model":self.llm_model.get(),"answer_directory":self.answer_directory.get(),"anti_flash_directory":self.anti_flash_directory.get(),"library_directory":self.library_directory.get(),"ark_api_key":self.ark_key.get(),"target_lang":self.lang.get(),"writing_style":self.style.get(),"writing_length":self.length.get(),"license_key":self.license_key.get(),"voicevox_path":self.voicevox_path.get(),"voicevox_voice":self.voicevox_voice.get(),"voicevox_speed":self.voicevox_speed.get(),"voicevox_pitch":self.voicevox_pitch.get(),"voicevox_volume":self.voicevox_volume.get(),"voicevox_pause":self.voicevox_pause.get(),"voicevox_output_directory":self.voicevox_output_directory.get(),"voicevox_output_format":self.voicevox_output_format.get(),"voicevox_use_gpu":self.voicevox_use_gpu.get(),"rewrite_prompts":self.rewrite_prompts,"cut_prompts":self.cut_prompts}
     def fetch_llm_models(self):
         self.status.set("正在获取模型列表…")
         def work():
@@ -704,8 +705,10 @@ class App(tk.Tk):
         outer=ttk.Frame(win,padding=14); outer.pack(fill="both",expand=True); outer.columnconfigure(0,weight=1); outer.rowconfigure(4,weight=1)
         ttk.Label(outer,text="导入或识别 SRT",style="Section.TLabel").grid(row=0,column=0,sticky="w")
         ttk.Label(outer,text="软件按 SRT 文件名自动匹配第一步下载的视频；本步骤只生成答案，不执行剪辑或去闪。",style="Muted.TLabel").grid(row=1,column=0,sticky="w",pady=(3,9))
-        ttk.Label(outer,text="剪辑方案提示词（可编辑）",style="Section.TLabel").grid(row=2,column=0,sticky="w",pady=(2,5))
+        prompt_header=ttk.Frame(outer); prompt_header.grid(row=2,column=0,sticky="ew",pady=(2,5)); ttk.Label(prompt_header,text="剪辑方案提示词（可编辑）",style="Section.TLabel").pack(side="left")
+        ttk.Button(prompt_header,text="提示词管理",command=lambda:self.manage_cut_prompts(win,cut_prompt)).pack(side="right")
         cut_prompt=tk.Text(outer,height=10,wrap="word",font=("Microsoft YaHei UI",9),bg="#F8FAFC",fg="#203047",relief="flat",padx=9,pady=8); cut_prompt.grid(row=3,column=0,sticky="ew",pady=(0,9)); cut_prompt.insert("1.0",ai.SRT_DELETION_PROMPT)
+        if self.cut_prompts: cut_prompt.delete("1.0","end"); cut_prompt.insert("1.0",self.cut_prompts[0].get("text",ai.SRT_DELETION_PROMPT))
         videos={}; srts={}; status=tk.StringVar(value="请导入 SRT 或识别 SRT 目录")
         tree=ttk.Treeview(outer,columns=("video","srt","state"),show="headings"); tree.heading("video",text="视频"); tree.heading("srt",text="同名 SRT"); tree.heading("state",text="状态"); tree.column("video",width=310); tree.column("srt",width=310); tree.column("state",width=130,anchor="center"); tree.grid(row=4,column=0,sticky="nsew")
         def refresh():
@@ -760,6 +763,30 @@ class App(tk.Tk):
                 self.after(0,lambda:(status.set(f"完成：{good}/{len(pairs)}"),start_button.configure(state="normal"),self.status.set(f"答案生成完成：{good}/{len(pairs)}")))
             self.run(work)
         start_button=ttk.Button(outer,text="开始生成答案",style="Primary.TButton",command=begin); start_button.grid(row=7,column=0,sticky="e",pady=(12,0))
+    def manage_cut_prompts(self,parent,prompt_widget):
+        win=tk.Toplevel(parent); win.title("剪辑提示词管理"); win.geometry("760x520"); win.minsize(620,420)
+        outer=ttk.Frame(win,padding=14); outer.pack(fill="both",expand=True); outer.columnconfigure(0,weight=1); outer.columnconfigure(1,weight=2); outer.rowconfigure(1,weight=1)
+        ttk.Label(outer,text="已保存提示词",style="Section.TLabel").grid(row=0,column=0,sticky="w"); ttk.Label(outer,text="提示词内容",style="Section.TLabel").grid(row=0,column=1,sticky="w",padx=(12,0))
+        listing=tk.Listbox(outer,exportselection=False); listing.grid(row=1,column=0,sticky="nsew"); name=tk.StringVar(); name_entry=ttk.Entry(outer,textvariable=name); name_entry.grid(row=1,column=1,sticky="new",padx=(12,0)); content=tk.Text(outer,wrap="word",font=("Microsoft YaHei UI",9),bg="#F8FAFC",relief="flat",padx=9,pady=8); content.grid(row=1,column=1,sticky="nsew",padx=(12,0),pady=(34,0))
+        def load(_=None):
+            sel=listing.curselection()
+            if sel: item=self.cut_prompts[sel[0]]; name.set(item.get("name","")); content.delete("1.0","end"); content.insert("1.0",item.get("text",""))
+        def refresh(select=0):
+            listing.delete(0,"end")
+            for item in self.cut_prompts: listing.insert("end",item.get("name","未命名"))
+            if self.cut_prompts: listing.selection_set(min(select,len(self.cut_prompts)-1)); listing.activate(min(select,len(self.cut_prompts)-1)); load()
+        listing.bind("<<ListboxSelect>>",load)
+        def save():
+            label=name.get().strip(); text=content.get("1.0","end").strip(); sel=listing.curselection()
+            if not label or not text: return
+            item={"name":label,"text":text}
+            if sel: self.cut_prompts[sel[0]]=item; index=sel[0]
+            else: self.cut_prompts.append(item); index=len(self.cut_prompts)-1
+            self.save_all_settings(False); refresh(index)
+        def delete():
+            sel=listing.curselection()
+            if sel and len(self.cut_prompts)>1: self.cut_prompts.pop(sel[0]); self.save_all_settings(False); refresh(max(0,sel[0]-1))
+        actions=ttk.Frame(outer); actions.grid(row=2,column=0,columnspan=2,sticky="ew",pady=(12,0)); ttk.Button(actions,text="新建",command=lambda:(listing.selection_clear(0,"end"),name.set("新剪辑提示词"),content.delete("1.0","end"))).pack(side="left"); ttk.Button(actions,text="保存",command=save).pack(side="left",padx=5); ttk.Button(actions,text="删除",command=delete).pack(side="left"); ttk.Button(actions,text="应用到编辑框",style="Primary.TButton",command=lambda:(prompt_widget.delete("1.0","end"),prompt_widget.insert("1.0",content.get("1.0","end").strip()),win.destroy())).pack(side="right"); refresh()
     def open_library_window(self):
         win=tk.Toplevel(self); win.title("资源库"); win.geometry("760x390"); win.columnconfigure(1,weight=1)
         desktop=Path.home()/"Desktop"/"工作目录"; defaults=[("去闪视频目录",self.anti_flash_directory.get() or str(desktop/"2_去闪光")),("日文文案目录",str(self.project/STEP_REWRITE_DIR if self.project else "")),("日文语音目录",str(self.project/STEP_VOICE_DIR if self.project else "")),("资源库目录",self.library_directory.get() or str(desktop/"6_资源库"))]
