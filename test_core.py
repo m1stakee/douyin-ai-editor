@@ -62,8 +62,8 @@ class TestCore(unittest.TestCase):
 
     def test_step_four_automatically_loads_answer_txt_only(self):
         source=Path(__file__).with_name("main.py").read_text(encoding="utf-8")
-        self.assertIn('answer_dir.glob("*答案1.txt")',source)
-        self.assertIn('path.name.endswith("答案1.txt")',source)
+        self.assertIn('answer_dir.glob("*.txt")',source)
+        self.assertIn('Path(directory).glob("*.txt")',source)
         self.assertIn('f"{video_path.stem}的答案1.txt"',source)
         self.assertIn('r"的?答案1$"',source)
         self.assertNotIn('cut_dir.glob("*_剪辑.srt")',source)

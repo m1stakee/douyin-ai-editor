@@ -797,8 +797,8 @@ class App(tk.Tk):
         refresh_prompt_buttons()
         if self.rewrite_prompts: use_prompt(self.rewrite_prompts[0])
         source_bar=ttk.Frame(outer); source_bar.grid(row=3,column=0,sticky="ew",pady=(0,8)); source_bar.columnconfigure(3,weight=1)
-        ttk.Button(source_bar,text="读取答案目录",command=lambda:load_directory()).grid(row=0,column=0,sticky="w")
-        ttk.Button(source_bar,text="导入答案 TXT（可多选）",command=lambda:import_files()).grid(row=0,column=1,sticky="w",padx=(7,0))
+        ttk.Button(source_bar,text="读取目录",command=lambda:load_directory()).grid(row=0,column=0,sticky="w")
+        ttk.Button(source_bar,text="导入文案（可多选）",command=lambda:import_files()).grid(row=0,column=1,sticky="w",padx=(7,0))
         clear_all_button=ttk.Button(source_bar,text="一键清空",command=lambda:clear_all()); clear_all_button.grid(row=0,column=2,sticky="w",padx=(7,0))
         count=tk.StringVar(value="尚未载入文案"); ttk.Label(source_bar,textvariable=count,style="Muted.TLabel").grid(row=0,column=3,sticky="e")
         title_row=ttk.Frame(outer); title_row.grid(row=4,column=0,sticky="ew",pady=(0,7)); ttk.Label(title_row,text="标题",style="Section.TLabel").pack(side="left")
@@ -828,7 +828,7 @@ class App(tk.Tk):
             added=[]
             for path in paths:
                 path=Path(path)
-                if path.suffix.lower() != ".txt" or not path.name.endswith("答案1.txt") or not path.is_file() or str(path.resolve()).casefold() in existing: continue
+                if path.suffix.lower() != ".txt" or not path.is_file() or str(path.resolve()).casefold() in existing: continue
                 try: text=read_text(path).strip()
                 except (OSError,UnicodeError) as exc:
                     messagebox.showwarning("导入文案",f"无法读取 {path.name}：{exc}",parent=win); continue
@@ -845,11 +845,11 @@ class App(tk.Tk):
             title.set(""); content.delete("1.0","end"); loading[0]=False
             count.set("已清空，请重新导入答案 TXT"); previous_button.configure(state="disabled"); next_button.configure(state="disabled")
         def load_directory():
-            directory=filedialog.askdirectory(title="选择包含答案1.txt的目录",initialdir=self.answer_directory.get() or str(self.project),parent=win)
+            directory=filedialog.askdirectory(title="选择文案目录",initialdir=self.answer_directory.get() or str(self.project),parent=win)
             if directory:
-                self.answer_directory.set(directory); self.save_all_settings(False); add_files(sorted(Path(directory).glob("*答案1.txt"),key=lambda path:path.name.casefold()))
+                self.answer_directory.set(directory); self.save_all_settings(False); add_files(sorted(Path(directory).glob("*.txt"),key=lambda path:path.name.casefold()))
         def import_files():
-            paths=filedialog.askopenfilenames(title="导入答案 TXT",initialdir=self.answer_directory.get() or str(self.project),filetypes=[("答案 TXT","*答案1.txt")],parent=win)
+            paths=filedialog.askopenfilenames(title="导入文案 TXT",initialdir=self.answer_directory.get() or str(self.project),filetypes=[("文案 TXT","*.txt")],parent=win)
             if paths: add_files(paths)
         title_entry.bind("<FocusOut>",lambda _event:save_current()); content.bind("<FocusOut>",lambda _event:save_current())
         options=ttk.Frame(outer); options.grid(row=7,column=0,sticky="ew",pady=(10,0)); status=tk.StringVar(value=f"统一使用主配置模型：{self.llm_model.get()}")
@@ -927,7 +927,7 @@ class App(tk.Tk):
         batch_retry_button=ttk.Button(footer,text="批量重试失败项",command=retry_failed,state="disabled"); batch_retry_button.grid(row=0,column=2,sticky="e",padx=(0,8))
         start_button=ttk.Button(footer,text="开始生成",style="Primary.TButton",command=begin); start_button.grid(row=0,column=3,sticky="e")
         answer_dir=Path(self.answer_directory.get()).expanduser() if self.answer_directory.get().strip() else None
-        if answer_dir and answer_dir.is_dir(): add_files(sorted(answer_dir.glob("*答案1.txt"),key=lambda path:path.name.casefold()))
+        if answer_dir and answer_dir.is_dir(): add_files(sorted(answer_dir.glob("*.txt"),key=lambda path:path.name.casefold()))
     def manage_rewrite_prompts(self,parent,prompt,refresh_buttons):
         win=tk.Toplevel(parent); win.title("改写提示词管理"); win.geometry("760x520"); win.minsize(620,420)
         outer=ttk.Frame(win,padding=14); outer.pack(fill="both",expand=True); outer.columnconfigure(0,weight=1); outer.columnconfigure(1,weight=2); outer.rowconfigure(1,weight=1)
