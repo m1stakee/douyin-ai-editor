@@ -765,7 +765,9 @@ class App(tk.Tk):
         result=tk.StringVar(value=""); ttk.Label(win,textvariable=result,wraplength=700).grid(row=4,column=0,columnspan=3,sticky="w",padx=12,pady=8)
         def copy_resources():
             video_dir,text_dir,audio_dir,out_dir=[Path(v.get()).expanduser() for v in vars]
-            if any(not p.is_dir() for p in (video_dir,text_dir,audio_dir,out_dir)): messagebox.showerror("资源库","所有目录都必须已存在，软件不会自动创建",parent=win); return
+            if any(not p.is_dir() for p in (video_dir,text_dir,audio_dir)): messagebox.showerror("资源库","去闪视频、日文文案和日文语音目录必须已存在",parent=win); return
+            try: out_dir.mkdir(parents=True,exist_ok=True)
+            except OSError as exc: messagebox.showerror("资源库","无法创建资源库目录："+str(exc),parent=win); return
             vids={p.stem:p for p in video_dir.iterdir() if p.suffix.lower() in {".mp4",".mov",".mkv",".webm",".m4v"}}; texts={p.stem:p for p in text_dir.glob("*.txt")}; audios={p.stem:p for p in audio_dir.iterdir() if p.suffix.lower() in {".mp3",".wav",".m4a",".flac"}}; keys=sorted(set(vids)&set(texts)&set(audios)); missing=[]
             for stem in sorted(set(vids)|set(texts)|set(audios)):
                 if stem not in vids or stem not in texts or stem not in audios: missing.append(stem); continue
