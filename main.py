@@ -745,7 +745,7 @@ class App(tk.Tk):
             output_dir=Path(output_var.get()).expanduser()
             if not output_dir.is_dir(): messagebox.showerror("生成答案","选择的目录不存在，软件不会自动创建目录",parent=win); return
             if not self.llm_key.get().strip(): messagebox.showerror("生成答案","请先在主界面配置 ChatGPT 接口 Key",parent=win); return
-            pairs=[(videos[stem],srts[stem]) for stem in sorted(srts)]; self.answer_directory.set(str(output_dir)); self.save_all_settings(False); start_button.configure(state="disabled"); status.set("正在生成答案…")
+            pairs=[(videos[stem],srts[stem]) for stem in sorted(srts)]; targets=retry_pairs[0] or pairs; retry_pairs[0]=[]; self.answer_directory.set(str(output_dir)); self.save_all_settings(False); start_button.configure(state="disabled"); retry_button.configure(state="disabled"); status.set("正在生成答案…")
             def work():
                 def operation(pair):
                     video_path,srt_path=pair
@@ -761,10 +761,12 @@ class App(tk.Tk):
                         self.after(0,lambda key=video_path.stem.casefold():tree.set(key,"state","完成")); return video_path
                     except Exception:
                         self.after(0,lambda key=video_path.stem.casefold():tree.set(key,"state","失败")); raise
-                results=run_batch(pairs,operation,workers=min(8,len(pairs)),retries=0); good=sum(1 for _,_,error in results if error is None); failures=[f"{pair[0].name}：{error}" for _,pair,error in results if error is not None]
+                results=run_batch(targets,operation,workers=min(8,len(targets)),retries=3); good=sum(1 for _,_,error in results if error is None); failures=[f"{pair[0].name}：{error}" for _,pair,error in results if error is not None]; retry_pairs[0]=[pair for _,pair,error in results if error is not None]
                 if failures: self.after(0,lambda values=failures:messagebox.showerror("生成答案失败","\n".join(values[:10]),parent=win))
-                self.after(0,lambda:(status.set(f"完成：{good}/{len(pairs)}"),start_button.configure(state="normal"),self.status.set(f"答案生成完成：{good}/{len(pairs)}")))
+                self.after(0,lambda failed=bool(failures),total=len(targets):(status.set(f"完成：{good}/{total}"),start_button.configure(state="normal"),retry_button.configure(state="normal" if failed else "disabled"),self.status.set(f"答案生成完成：{good}/{total}")))
             self.run(work)
+        retry_pairs=[[]]
+        retry_button=ttk.Button(outer,text="失败项重试",state="disabled",command=begin); retry_button.grid(row=7,column=0,sticky="e",padx=(0,125),pady=(12,0))
         start_button=ttk.Button(outer,text="开始生成答案",style="Primary.TButton",command=begin); start_button.grid(row=7,column=0,sticky="e",pady=(12,0))
     def manage_cut_prompts(self,parent,prompt_widget):
         win=tk.Toplevel(parent); win.title("剪辑提示词管理"); win.geometry("760x520"); win.minsize(620,420)
