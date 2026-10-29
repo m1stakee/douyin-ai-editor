@@ -747,8 +747,8 @@ class App(tk.Tk):
             if not self.llm_key.get().strip(): messagebox.showerror("生成答案","请先在主界面配置 ChatGPT 接口 Key",parent=win); return
             pairs=[(videos[stem],srts[stem]) for stem in sorted(srts)]; self.answer_directory.set(str(output_dir)); self.save_all_settings(False); start_button.configure(state="disabled"); status.set("正在生成答案…")
             def work():
-                good=0
-                for video_path,srt_path in pairs:
+                def operation(pair):
+                    video_path,srt_path=pair
                     try:
                         self.after(0,lambda key=video_path.stem.casefold():tree.set(key,"state","模型处理中")); raw_srt=read_text(srt_path); cues=voicevox_service.parse_srt(raw_srt); duration=media.probe_duration(asr.resolve_ffmpeg(),str(video_path)); ranges=ai.srt_deletion_plan(cues,duration,self.llm_url.get(),self.llm_key.get(),self.llm_model.get(),OPENAI_COMPAT_REASONING_EFFORT,srt_text=raw_srt,prompt_text=prompt_value)
                         try: plan=media.build_srt_cut_plan(cues,duration,ranges)
@@ -758,8 +758,11 @@ class App(tk.Tk):
                         for source in (video_path,srt_path):
                             target=output_dir/source.name
                             if source.resolve()!=target.resolve(): shutil.copy2(source,target)
-                        good+=1; self.after(0,lambda key=video_path.stem.casefold():tree.set(key,"state","完成"))
-                    except Exception as exc: self.after(0,lambda key=video_path.stem.casefold(),e=exc:(tree.set(key,"state","失败"),messagebox.showerror("生成答案失败",f"{video_path.name}\n{e}",parent=win)))
+                        self.after(0,lambda key=video_path.stem.casefold():tree.set(key,"state","完成")); return video_path
+                    except Exception:
+                        self.after(0,lambda key=video_path.stem.casefold():tree.set(key,"state","失败")); raise
+                results=run_batch(pairs,operation,workers=min(8,len(pairs)),retries=0); good=sum(1 for _,_,error in results if error is None); failures=[f"{pair[0].name}：{error}" for _,pair,error in results if error is not None]
+                if failures: self.after(0,lambda values=failures:messagebox.showerror("生成答案失败","\n".join(values[:10]),parent=win))
                 self.after(0,lambda:(status.set(f"完成：{good}/{len(pairs)}"),start_button.configure(state="normal"),self.status.set(f"答案生成完成：{good}/{len(pairs)}")))
             self.run(work)
         start_button=ttk.Button(outer,text="开始生成答案",style="Primary.TButton",command=begin); start_button.grid(row=7,column=0,sticky="e",pady=(12,0))
