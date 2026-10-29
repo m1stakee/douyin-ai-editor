@@ -6,6 +6,7 @@ import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
 import downloader_service, media, asr, ai, rename_service, voicevox_service
 from text_io import read_text, write_text
+from rewrite_source import read_rewrite_source
 from batch_service import run_batch, transcribe_worker_count
 from app_config import ark_key, dashscope_key, henghengmao_key, load_settings, save_settings
 from task_store import TaskStore
@@ -709,8 +710,8 @@ class App(tk.Tk):
         refresh_prompt_buttons()
         if self.rewrite_prompts: use_prompt(self.rewrite_prompts[0])
         source_bar=ttk.Frame(outer); source_bar.grid(row=3,column=0,sticky="ew",pady=(0,8)); source_bar.columnconfigure(3,weight=1)
-        ttk.Button(source_bar,text="读取目录 TXT",command=lambda:load_directory()).grid(row=0,column=0,sticky="w")
-        ttk.Button(source_bar,text="导入 TXT（可多选）",command=lambda:import_files()).grid(row=0,column=1,sticky="w",padx=(7,0))
+        ttk.Button(source_bar,text="读取目录 TXT/SRT",command=lambda:load_directory()).grid(row=0,column=0,sticky="w")
+        ttk.Button(source_bar,text="导入 TXT/SRT（可多选）",command=lambda:import_files()).grid(row=0,column=1,sticky="w",padx=(7,0))
         clear_all_button=ttk.Button(source_bar,text="一键清空",command=lambda:clear_all()); clear_all_button.grid(row=0,column=2,sticky="w",padx=(7,0))
         count=tk.StringVar(value="尚未载入文案"); ttk.Label(source_bar,textvariable=count,style="Muted.TLabel").grid(row=0,column=3,sticky="e")
         title_row=ttk.Frame(outer); title_row.grid(row=4,column=0,sticky="ew",pady=(0,7)); ttk.Label(title_row,text="标题",style="Section.TLabel").pack(side="left")
@@ -740,24 +741,26 @@ class App(tk.Tk):
             added=[]
             for path in paths:
                 path=Path(path)
-                if path.suffix.lower()!=".txt" or not path.is_file() or str(path.resolve()).casefold() in existing: continue
-                try: text=read_text(path).strip()
+                if path.suffix.lower() not in {".txt",".srt"} or not path.is_file() or str(path.resolve()).casefold() in existing: continue
+                try: text=read_rewrite_source(path)
                 except (OSError,UnicodeError) as exc:
-                    messagebox.showwarning("导入 TXT",f"无法读取 {path.name}：{exc}",parent=win); continue
+                    messagebox.showwarning("导入文案",f"无法读取 {path.name}：{exc}",parent=win); continue
+                except ValueError as exc:
+                    messagebox.showwarning("导入文案",f"无法解析 {path.name}：{exc}",parent=win); continue
                 if not text: continue
                 entries.append({"path":path,"title":path.stem,"text":text}); existing.add(str(path.resolve()).casefold()); added.append(len(entries)-1)
             if added: show_entry(added[0])
-            elif not entries: count.set("没有可用的 TXT 文案")
+            elif not entries: count.set("没有可用的 TXT/SRT 文案")
             if entries: previous_button.configure(state="normal"); next_button.configure(state="normal")
         def clear_all():
             save_current(); entries.clear(); current[0]=0; loading[0]=True
             title.set(""); content.delete("1.0","end"); loading[0]=False
-            count.set("已清空，请重新导入 TXT"); previous_button.configure(state="disabled"); next_button.configure(state="disabled")
+            count.set("已清空，请重新导入 TXT/SRT"); previous_button.configure(state="disabled"); next_button.configure(state="disabled")
         def load_directory():
-            directory=filedialog.askdirectory(title="选择包含 TXT 文案的目录",initialdir=str(self.project),parent=win)
-            if directory: add_files(sorted(Path(directory).glob("*.txt"),key=lambda path:path.name.casefold()))
+            directory=filedialog.askdirectory(title="选择包含 TXT/SRT 文案的目录",initialdir=str(self.project),parent=win)
+            if directory: add_files(sorted((path for path in Path(directory).iterdir() if path.suffix.lower() in {".txt",".srt"}),key=lambda path:path.name.casefold()))
         def import_files():
-            paths=filedialog.askopenfilenames(title="导入 TXT 文案",initialdir=str(self.project),filetypes=[("TXT 文案","*.txt")],parent=win)
+            paths=filedialog.askopenfilenames(title="导入 TXT/SRT 文案",initialdir=str(self.project),filetypes=[("TXT/SRT 文案","*.txt *.srt"),("TXT 文案","*.txt"),("SRT 字幕","*.srt")],parent=win)
             if paths: add_files(paths)
         title_entry.bind("<FocusOut>",lambda _event:save_current()); content.bind("<FocusOut>",lambda _event:save_current())
         options=ttk.Frame(outer); options.grid(row=7,column=0,sticky="ew",pady=(10,0)); provider=tk.StringVar(value="阿里云百炼"); model=tk.StringVar(value="qwen3.7-plus")
@@ -801,7 +804,7 @@ class App(tk.Tk):
         def begin():
             save_current(); chosen=[dict(item) for item in entries]; instruction=prompt.get("1.0","end").strip(); selected_provider=provider.get(); compatible=selected_provider=="OpenAI 兼容接口"; doubao=selected_provider=="豆包"
             key=(self.llm_key.get() if compatible else (self.ark_key.get() if doubao else self.asr_key.get())).strip(); selected_model=self.llm_model.get().strip() if compatible else (DOUBAO_MODEL if doubao else model.get().strip()); base_url=self.llm_url.get().strip() if compatible else (DOUBAO_API_URL if doubao else None)
-            if not chosen: messagebox.showinfo("AI 改写","请先从目录读取或导入 TXT 文案",parent=win); return
+            if not chosen: messagebox.showinfo("AI 改写","请先从目录读取或导入 TXT/SRT 文案",parent=win); return
             if not instruction: messagebox.showinfo("AI 改写","请填写改写提示词",parent=win); return
             if not key: messagebox.showerror("AI 改写","请先在接口与工具配置中填写所选服务的 API Key",parent=win); return
             output_names=[rename_service.safe_stem(item["title"]) for item in chosen]

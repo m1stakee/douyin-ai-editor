@@ -16,7 +16,15 @@ from ai import chat, rewrite_text, validate_plan
 from task_store import TaskStore
 from license_client import verify_license, verify_saved_license
 from text_io import read_text, write_text
+from rewrite_source import read_rewrite_source
 class TestCore(unittest.TestCase):
+    def test_rewrite_source_extracts_text_from_srt(self):
+        from tempfile import TemporaryDirectory
+        with TemporaryDirectory() as folder:
+            source=Path(folder)/"字幕.srt"
+            write_text(source,"1\n00:00:00,000 --> 00:00:01,000\n第一句\n\n2\n00:00:01,000 --> 00:00:02,000\n第二句\n")
+            self.assertEqual(read_rewrite_source(source),"第一句\n第二句")
+
     def test_text_io_reads_legacy_gb18030_and_writes_utf8_without_bom(self):
         from tempfile import TemporaryDirectory
         with TemporaryDirectory() as folder:
