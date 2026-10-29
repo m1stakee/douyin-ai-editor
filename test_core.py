@@ -52,6 +52,8 @@ class TestCore(unittest.TestCase):
         sent=mocked_chat.call_args.args[4]
         self.assertIn("只通过整段删除字幕行进行剪辑",sent)
         self.assertIn(original,sent)
+        srt_deletion_plan(cues,2.0,"https://example.com/v1","key","model",srt_text=original,prompt_text="自定义剪辑规则")
+        self.assertIn("自定义剪辑规则",mocked_chat.call_args.args[4])
 
     def test_rewrite_source_extracts_text_from_srt(self):
         from tempfile import TemporaryDirectory
