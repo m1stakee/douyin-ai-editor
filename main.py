@@ -754,7 +754,6 @@ class App(tk.Tk):
                 self.after(0,lambda:(status.set(f"完成：{good}/{len(pairs)}"),start_button.configure(state="normal"),self.status.set(f"答案生成完成：{good}/{len(pairs)}")))
             self.run(work)
         start_button=ttk.Button(outer,text="开始生成答案",style="Primary.TButton",command=begin); start_button.grid(row=5,column=0,sticky="e",pady=(12,0))
-        win.after_idle(recognize_directory)
     def open_library_window(self):
         win=tk.Toplevel(self); win.title("资源库"); win.geometry("760x390"); win.columnconfigure(1,weight=1)
         desktop=Path.home()/"Desktop"/"工作目录"; defaults=[("去闪视频目录",self.anti_flash_directory.get() or str(desktop/"2_去闪光")),("日文文案目录",str(self.project/STEP_REWRITE_DIR if self.project else "")),("日文语音目录",str(self.project/STEP_VOICE_DIR if self.project else "")),("资源库目录",self.library_directory.get() or str(desktop/"6_资源库"))]
