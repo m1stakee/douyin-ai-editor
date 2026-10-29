@@ -78,6 +78,11 @@ class TestCore(unittest.TestCase):
         self.assertIn('for path in directory.glob("*.srt")',source)
         self.assertIn('source_dir=self.project/STEP_DOWNLOAD_DIR',source)
 
+    def test_library_rows_have_open_directory_actions(self):
+        source=Path(__file__).with_name("main.py").read_text(encoding="utf-8")
+        self.assertIn('def open_library_path(var,is_output=False):',source)
+        self.assertIn('text="打开",command=lambda v=var,output=row==3:open_library_path(v,output)',source)
+
     def test_text_io_reads_legacy_gb18030_and_writes_utf8_without_bom(self):
         from tempfile import TemporaryDirectory
         with TemporaryDirectory() as folder:

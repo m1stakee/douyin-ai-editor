@@ -760,8 +760,15 @@ class App(tk.Tk):
         win=tk.Toplevel(self); win.title("资源库"); win.geometry("760x390"); win.columnconfigure(1,weight=1)
         desktop=Path.home()/"Desktop"/"工作目录"; defaults=[("去闪视频目录",self.anti_flash_directory.get() or str(desktop/"2_去闪光")),("日文文案目录",str(self.project/STEP_REWRITE_DIR if self.project else "")),("日文语音目录",str(self.project/STEP_VOICE_DIR if self.project else "")),("资源库目录",self.library_directory.get() or str(desktop/"6_资源库"))]
         vars=[]
+        def open_library_path(var,is_output=False):
+            try:
+                directory=Path(var.get()).expanduser()
+                if is_output: directory.mkdir(parents=True,exist_ok=True)
+                if not directory.is_dir(): raise FileNotFoundError("目录不存在")
+                os.startfile(str(directory.resolve()))
+            except Exception as exc: messagebox.showerror("打开目录失败",str(exc),parent=win)
         for row,(label,value) in enumerate(defaults):
-            var=tk.StringVar(value=value); vars.append(var); ttk.Label(win,text=label).grid(row=row,column=0,sticky="w",padx=12,pady=8); ttk.Entry(win,textvariable=var).grid(row=row,column=1,sticky="ew",padx=8,pady=8); ttk.Button(win,text="选择",command=lambda v=var: v.set(filedialog.askdirectory(parent=win) or v.get())).grid(row=row,column=2,padx=8)
+            var=tk.StringVar(value=value); vars.append(var); ttk.Label(win,text=label).grid(row=row,column=0,sticky="w",padx=12,pady=8); ttk.Entry(win,textvariable=var).grid(row=row,column=1,sticky="ew",padx=8,pady=8); ttk.Button(win,text="选择",command=lambda v=var: v.set(filedialog.askdirectory(parent=win) or v.get())).grid(row=row,column=2,padx=(8,3)); ttk.Button(win,text="打开",command=lambda v=var,output=row==3:open_library_path(v,output)).grid(row=row,column=3,padx=(3,8))
         result=tk.StringVar(value=""); ttk.Label(win,textvariable=result,wraplength=700).grid(row=4,column=0,columnspan=3,sticky="w",padx=12,pady=8)
         def copy_resources():
             video_dir,text_dir,audio_dir,out_dir=[Path(v.get()).expanduser() for v in vars]
