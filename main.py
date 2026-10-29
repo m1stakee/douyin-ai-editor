@@ -392,10 +392,10 @@ class App(tk.Tk):
 
     def open_rename_window(self):
         if not self.project: messagebox.showinfo("批量重命名","请先选择输出目录"); return
-        folder=str(self.project)
+        folder=str(self.step_directory(STEP_DOWNLOAD_DIR))
         videos=rename_service.list_videos(folder)
         if not videos: messagebox.showinfo("批量重命名","该文件夹下没有支持的视频文件"); return
-        win=tk.Toplevel(self); win.title("批量重命名视频、SRT 和 TXT"); win.geometry("860x600")
+        win=tk.Toplevel(self); win.title("批量重命名第一步下载视频"); win.geometry("860x600")
         outer=ttk.Frame(win,padding=10); outer.pack(fill="both",expand=True)
         ttk.Label(outer,text=f"文件夹：{folder}").pack(anchor="w",pady=(0,8))
         canvas=tk.Canvas(outer,highlightthickness=0); scroll=ttk.Scrollbar(outer,orient="vertical",command=canvas.yview); rows=ttk.Frame(canvas)
@@ -789,7 +789,7 @@ class App(tk.Tk):
         actions=ttk.Frame(outer); actions.grid(row=2,column=0,columnspan=2,sticky="ew",pady=(12,0)); ttk.Button(actions,text="新建",command=lambda:(listing.selection_clear(0,"end"),name.set("新剪辑提示词"),content.delete("1.0","end"))).pack(side="left"); ttk.Button(actions,text="保存",command=save).pack(side="left",padx=5); ttk.Button(actions,text="删除",command=delete).pack(side="left"); ttk.Button(actions,text="应用到编辑框",style="Primary.TButton",command=lambda:(prompt_widget.delete("1.0","end"),prompt_widget.insert("1.0",content.get("1.0","end").strip()),win.destroy())).pack(side="right"); refresh()
     def open_library_window(self):
         win=tk.Toplevel(self); win.title("资源库"); win.geometry("760x390"); win.columnconfigure(1,weight=1)
-        desktop=Path.home()/"Desktop"/"工作目录"; defaults=[("去闪视频目录",self.anti_flash_directory.get() or str(desktop/"2_去闪光")),("日文文案目录",str(self.project/STEP_REWRITE_DIR if self.project else "")),("日文语音目录",str(self.project/STEP_VOICE_DIR if self.project else "")),("资源库目录",self.library_directory.get() or str(desktop/"6_资源库"))]
+        desktop=Path.home()/"Desktop"/"工作目录"; defaults=[("去闪视频目录",self.anti_flash_directory.get() or str(desktop/"2_去闪光")),("日文 SRT 目录",str(self.project/STEP_REWRITE_DIR if self.project else "")),("日文语音目录",str(self.project/STEP_VOICE_DIR if self.project else "")),("资源库目录",self.library_directory.get() or str(desktop/"6_资源库"))]
         vars=[]
         def open_library_path(var,is_output=False):
             try:
@@ -803,10 +803,10 @@ class App(tk.Tk):
         result=tk.StringVar(value=""); ttk.Label(win,textvariable=result,wraplength=700).grid(row=4,column=0,columnspan=3,sticky="w",padx=12,pady=8)
         def copy_resources():
             video_dir,text_dir,audio_dir,out_dir=[Path(v.get()).expanduser() for v in vars]
-            if any(not p.is_dir() for p in (video_dir,text_dir,audio_dir)): messagebox.showerror("资源库","去闪视频、日文文案和日文语音目录必须已存在",parent=win); return
+            if any(not p.is_dir() for p in (video_dir,text_dir,audio_dir)): messagebox.showerror("资源库","去闪视频、日文 SRT 和日文语音目录必须已存在",parent=win); return
             try: out_dir.mkdir(parents=True,exist_ok=True)
             except OSError as exc: messagebox.showerror("资源库","无法创建资源库目录："+str(exc),parent=win); return
-            vids={p.stem:p for p in video_dir.iterdir() if p.suffix.lower() in {".mp4",".mov",".mkv",".webm",".m4v"}}; texts={p.stem:p for p in text_dir.glob("*.txt")}; audios={p.stem:p for p in audio_dir.iterdir() if p.suffix.lower() in {".mp3",".wav",".m4a",".flac"}}; keys=sorted(set(vids)&set(texts)&set(audios)); missing=[]
+            vids={p.stem:p for p in video_dir.iterdir() if p.suffix.lower() in {".mp4",".mov",".mkv",".webm",".m4v"}}; texts={p.stem:p for p in text_dir.glob("*.srt")}; audios={p.stem:p for p in audio_dir.iterdir() if p.suffix.lower() in {".mp3",".wav",".m4a",".flac"}}; keys=sorted(set(vids)&set(texts)&set(audios)); missing=[]
             for stem in sorted(set(vids)|set(texts)|set(audios)):
                 if stem not in vids or stem not in texts or stem not in audios: missing.append(stem); continue
                 for mapping in (vids,texts,audios): shutil.copy2(mapping[stem],out_dir/mapping[stem].name)

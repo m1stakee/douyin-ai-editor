@@ -85,6 +85,11 @@ class TestCore(unittest.TestCase):
         self.assertIn('def open_library_path(var,is_output=False):',source)
         self.assertIn('text="打开",command=lambda v=var,output=row==3:open_library_path(v,output)',source)
 
+    def test_rename_uses_step_one_download_directory(self):
+        source=Path(__file__).with_name("main.py").read_text(encoding="utf-8")
+        rename_section=source[source.index("def open_rename_window"):source.index("def refresh_task_center")]
+        self.assertIn('self.step_directory(STEP_DOWNLOAD_DIR)',rename_section)
+
     def test_voice_directory_recognizes_all_txt_scripts(self):
         source=Path(__file__).with_name("main.py").read_text(encoding="utf-8")
         voice_section=source[source.index("def open_voicevox_window"):source.index("def open_rename_window")]
