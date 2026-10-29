@@ -582,10 +582,7 @@ class App(tk.Tk):
                 control.checkpoint(); seg=asr.transcribe(audio_path,key=context["api_key"],language=context["source_lang"],on_status=status)
             control.checkpoint(); self.set_transcribe_progress(batch_id,index,85,"生成文案/SRT")
             output_dir=Path(context["output_directory"]); output_dir.mkdir(parents=True,exist_ok=True)
-            json_path=output_dir/f"{video.stem}.json"; srt_path=output_dir/f"{video.stem}.srt"; txt_path=output_dir/f"{video.stem}.txt"
-            json_path.write_text(json.dumps(seg,ensure_ascii=False,indent=2),encoding="utf-8")
-            srt_path.write_text(asr.segments_to_srt(seg),encoding="utf-8-sig")
-            txt_path.write_text(asr.segments_to_text(seg),encoding="utf-8-sig")
+            json_path,srt_path,txt_path=asr.write_transcript_outputs(output_dir,video.stem,seg)
             self.set_transcribe_progress(batch_id,index,100,"完成"); return (srt_path.name,txt_path.name)
         except Exception:
             self.set_transcribe_progress(batch_id,index,0,"失败"); raise

@@ -1,6 +1,7 @@
 from pathlib import Path
 from typing import Callable
 from contextlib import contextmanager
+import json
 import mimetypes
 import shutil
 import subprocess
@@ -44,6 +45,19 @@ def segments_to_text(segments: list[dict]) -> str:
     lines = [str(segment.get("text", "")).strip() for segment in segments]
     lines = [line for line in lines if line]
     return "\n".join(lines) + ("\n" if lines else "")
+
+
+def write_transcript_outputs(output_dir: Path, stem: str, segments: list[dict]) -> tuple[Path, Path, Path]:
+    """Write transcript artifacts as UTF-8 without a BOM."""
+    output_dir = Path(output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    json_path = output_dir / f"{stem}.json"
+    srt_path = output_dir / f"{stem}.srt"
+    txt_path = output_dir / f"{stem}.txt"
+    json_path.write_text(json.dumps(segments, ensure_ascii=False, indent=2), encoding="utf-8")
+    srt_path.write_text(segments_to_srt(segments), encoding="utf-8")
+    txt_path.write_text(segments_to_text(segments), encoding="utf-8")
+    return json_path, srt_path, txt_path
 
 
 def resolve_ffmpeg(configured: str = "") -> str:

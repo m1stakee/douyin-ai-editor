@@ -9,7 +9,7 @@ from rename_service import rename_media_bundle
 from downloader import extract_share_urls
 from batch_service import run_batch, transcribe_worker_count
 from app_config import save_settings, load_settings
-from asr import prepared_asr_audio, transcribe, transcribe_request_config, segments_to_srt, segments_to_text
+from asr import prepared_asr_audio, transcribe, transcribe_request_config, segments_to_srt, segments_to_text, write_transcript_outputs
 from media import fixed_scenes, build_srt_cut_plan, write_cut_subtitles
 from voicevox_service import SrtCue
 from ai import chat, rewrite_text, validate_plan
@@ -384,6 +384,15 @@ class TestCore(unittest.TestCase):
     def test_segments_export_to_plain_text(self):
         text = segments_to_text([{"text": "第一句"}, {"text": " 第二句 "}])
         self.assertEqual(text, "第一句\n第二句\n")
+
+    def test_transcript_outputs_use_utf8_without_bom(self):
+        from tempfile import TemporaryDirectory
+        with TemporaryDirectory() as folder:
+            outputs = write_transcript_outputs(Path(folder), "中文视频", [{"id": 1, "start": 0, "end": 1, "text": "你好"}])
+            for path in outputs:
+                content = path.read_bytes()
+                self.assertFalse(content.startswith(b"\xef\xbb\xbf"))
+                content.decode("utf-8")
 
     @patch("asr.subprocess.run")
     def test_prepared_asr_audio_uses_compact_mp3_and_removes_temporary_file(self, run):
