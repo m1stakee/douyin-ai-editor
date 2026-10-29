@@ -189,6 +189,18 @@ class TestVoicevoxService(unittest.TestCase):
             self.assertIsNone(results[1]["error"])
             self.assertEqual(results[1]["wav"].name, "good.wav")
 
+    def test_script_output_keeps_original_stem_and_rejects_duplicate_names(self):
+        with TemporaryDirectory() as folder, TemporaryDirectory() as second_folder:
+            root=Path(folder); one=root/"原文件名.txt"; two=Path(second_folder)/"原文件名.txt"
+            one.write_text("第一句。",encoding="utf-8"); two.write_text("第二句。",encoding="utf-8")
+            def fake_script(_text,output,**_kwargs):
+                target=Path(output); target.write_bytes(b"RIFF"); subtitle=target.with_suffix(".srt"); subtitle.write_text("ok",encoding="utf-8"); return target,subtitle,[]
+            with patch("voicevox_service.synthesize_script",side_effect=fake_script):
+                results=voicevox_service.synthesize_script_files([one,two],root/"out",style_id=13)
+            self.assertEqual(results[0]["audio"].name,"原文件名.wav")
+            self.assertIsInstance(results[1]["error"],ValueError)
+            self.assertFalse((root/"out"/"原文件名_2.wav").exists())
+
     @patch("voicevox_service.subprocess.run")
     def test_convert_audio_uses_selected_format_and_removes_full_wav(self, run):
         with TemporaryDirectory() as folder:

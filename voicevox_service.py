@@ -466,13 +466,10 @@ def synthesize_script_files(
     used_names: set[str] = set()
     for file_index, source in enumerate(sources, 1):
         stem = re.sub(r'[<>:"/\\|?*\x00-\x1f]', "_", source.stem).strip(" .") or f"voice_{file_index}"
-        unique_stem = stem
-        suffix = 2
-        while unique_stem.casefold() in used_names:
-            unique_stem = f"{stem}_{suffix}"
-            suffix += 1
-        used_names.add(unique_stem.casefold())
         try:
+            if stem.casefold() in used_names:
+                raise ValueError(f"存在同名文案：{source.name}；语音输出不会自动添加后缀，请保留一个或先重命名")
+            used_names.add(stem.casefold())
             text = read_script_file(source)
 
             def sentence_progress(current: int, total: int, _text: str, _path: Path) -> None:
@@ -481,7 +478,7 @@ def synthesize_script_files(
 
             wav_path, srt_path, report = synthesize_script(
                 text,
-                folder / f"{unique_stem}.wav",
+                folder / f"{stem}.wav",
                 style_id=style_id,
                 speed=speed,
                 pitch=pitch,
