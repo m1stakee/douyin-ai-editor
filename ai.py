@@ -86,7 +86,7 @@ def edit_plan(segments, scenes, rewrite_result, base_url, key, model, reasoning_
     user=json.dumps({"source_segments":segments,"scenes":scenes,"rewrite":rewrite_result},ensure_ascii=False)
     return chat(base_url,key,model,system,user,reasoning_effort)
 
-def srt_deletion_plan(cues, duration, base_url, key, model, reasoning_effort=None, correction=""):
+def srt_deletion_plan(cues, duration, base_url, key, model, reasoning_effort=None, correction="", srt_text=None):
     system=("我会发给你一段解说视频的 .srt 字幕文件。任务：只通过整段删除字幕行进行剪辑，不改任何字句，把成片时长控制在原视频60%~80%的区间内。剪辑规则（从高到低优先级）：\n"
             "1.时长是最高优先级：结合srt文件中给出的时间轴，剪辑后成品保留60%~80%之间的时间即可，不需要尽量接近某个具体时长\n"
             "2.剪辑方式：只能整段删字幕；每次删除要删掉至少连续 3 条字幕行；整个视频里要有至少 3 处这样的删除。\n"
@@ -98,9 +98,13 @@ def srt_deletion_plan(cues, duration, base_url, key, model, reasoning_effort=Non
             "5.最后单独写一行：\n“预计剪掉时长：XX 分 XX 秒；保留时长：XX 分 XX 秒。”\n时间可以精确到秒，不必精确到毫秒。\n"
             "为便于程序执行，请把最终选择仅编码为JSON对象，不要Markdown和解释，格式必须为 {\"delete_ranges\":[{\"start\":11,\"end\":20}]}。"
             "start和end使用输入数组中的position；删除范围不能重叠或相邻。程序会根据JSON按上述格式保存完整剪辑结果。")
-    payload={"video_duration_seconds":duration,"subtitles":[{"position":i,"start":x.start,"end":x.end,"text":x.text} for i,x in enumerate(cues,1)]}
-    if correction: payload["previous_plan_error"]=correction
-    result=chat(base_url,key,model,system,json.dumps(payload,ensure_ascii=False),reasoning_effort)
+    if srt_text is None:
+        srt_text="\n\n".join(
+            f"{i}\n{x.start:.3f} --> {x.end:.3f}\n{x.text}" for i,x in enumerate(cues,1)
+        )
+    user=f"视频总时长：{duration:.3f} 秒\n\n以下是原始 SRT 全文：\n\n{srt_text}"
+    if correction: user+=f"\n\n上一次方案校验失败，请修正：{correction}"
+    result=chat(base_url,key,model,system,user,reasoning_effort)
     ranges=result.get("delete_ranges")
     if not isinstance(ranges,list): raise ValueError("模型没有返回 delete_ranges")
     return ranges

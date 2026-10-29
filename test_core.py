@@ -12,7 +12,7 @@ from app_config import save_settings, load_settings
 from asr import prepared_asr_audio, transcribe, transcribe_request_config, segments_to_srt, segments_to_text, write_transcript_outputs
 from media import fixed_scenes, build_srt_cut_plan, write_cut_subtitles, write_cut_plan_result
 from voicevox_service import SrtCue
-from ai import chat, rewrite_text, validate_plan
+from ai import chat, rewrite_text, srt_deletion_plan, validate_plan
 from task_store import TaskStore
 from license_client import verify_license, verify_saved_license
 from text_io import read_text, write_text
@@ -43,6 +43,13 @@ class TestCore(unittest.TestCase):
             retried=rewrite_output_path(Path(folder),"示例标题","20261030_120000",1)
             self.assertEqual(first,retried)
             self.assertEqual(first.name,"示例标题_20261030_120000_02.txt")
+    @patch("ai.chat")
+    def test_srt_deletion_plan_sends_original_srt_text(self, mocked_chat):
+        mocked_chat.return_value={"delete_ranges":[{"start":1,"end":3}]}
+        original="1\n00:00:00,000 --> 00:00:01,250\n原始第一句\n\n2\n00:00:01,250 --> 00:00:02,000\n原始第二句\n"
+        cues=[SrtCue(1,0.0,1.25,"原始第一句"),SrtCue(2,1.25,2.0,"原始第二句")]
+        self.assertEqual(srt_deletion_plan(cues,2.0,"https://example.com/v1","key","model",srt_text=original),[{"start":1,"end":3}])
+        self.assertIn(original,mocked_chat.call_args.args[4])
 
     def test_rewrite_source_extracts_text_from_srt(self):
         from tempfile import TemporaryDirectory

@@ -733,10 +733,10 @@ class App(tk.Tk):
                 good=0
                 for video_path,srt_path in pairs:
                     try:
-                        self.after(0,lambda key=video_path.stem.casefold():tree.set(key,"state","模型处理中")); cues=voicevox_service.parse_srt(read_text(srt_path)); duration=media.probe_duration(asr.resolve_ffmpeg(),str(video_path)); ranges=ai.srt_deletion_plan(cues,duration,self.llm_url.get(),self.llm_key.get(),self.llm_model.get(),OPENAI_COMPAT_REASONING_EFFORT)
+                        self.after(0,lambda key=video_path.stem.casefold():tree.set(key,"state","模型处理中")); raw_srt=read_text(srt_path); cues=voicevox_service.parse_srt(raw_srt); duration=media.probe_duration(asr.resolve_ffmpeg(),str(video_path)); ranges=ai.srt_deletion_plan(cues,duration,self.llm_url.get(),self.llm_key.get(),self.llm_model.get(),OPENAI_COMPAT_REASONING_EFFORT,srt_text=raw_srt)
                         try: plan=media.build_srt_cut_plan(cues,duration,ranges)
                         except ValueError as first_error:
-                            ranges=ai.srt_deletion_plan(cues,duration,self.llm_url.get(),self.llm_key.get(),self.llm_model.get(),OPENAI_COMPAT_REASONING_EFFORT,str(first_error)); plan=media.build_srt_cut_plan(cues,duration,ranges)
+                            ranges=ai.srt_deletion_plan(cues,duration,self.llm_url.get(),self.llm_key.get(),self.llm_model.get(),OPENAI_COMPAT_REASONING_EFFORT,str(first_error),raw_srt); plan=media.build_srt_cut_plan(cues,duration,ranges)
                         media.write_cut_plan_result(cues,plan,str(output_dir/f"{video_path.stem}答案1.txt"))
                         for source in (video_path,srt_path):
                             target=output_dir/source.name
