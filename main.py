@@ -1007,9 +1007,12 @@ class App(tk.Tk):
         if widget.winfo_exists(): widget.configure(state="normal"); widget.delete("1.0","end"); widget.insert("1.0",f"{title}\n\n{text}"); widget.configure(state="disabled")
     def start_transcribe(self):
         if not self.project: self.log("转写失败：请先选择输出目录"); return
-        download_dir=self.step_directory(STEP_DOWNLOAD_DIR)
-        videos=rename_service.list_videos(download_dir)
-        if not videos: self.log("转写失败：输出目录中没有视频"); return
+        default_dir=self.project/STEP_DOWNLOAD_DIR
+        selected=filedialog.askdirectory(parent=self,title="选择需要生成文案和 SRT 的视频目录",initialdir=str(default_dir if default_dir.is_dir() else self.project))
+        if not selected: return
+        source_dir=Path(selected)
+        videos=rename_service.list_videos(source_dir)
+        if not videos: messagebox.showinfo("生成文案与 SRT","选择的目录中没有可识别的视频",parent=self); return
         transcribe_dir=self.step_directory(STEP_TRANSCRIBE_DIR)
         self.transcribe_counter+=1; batch_id=self.transcribe_counter; self.latest_transcribe_id=batch_id; controls=[downloader_service.DownloadControl() for _ in videos]; context={"project":transcribe_dir,"videos":videos,"output_directory":transcribe_dir,"controls":controls,"source_lang":self.source_lang.get(),"ffmpeg":self.ffmpeg.get(),"api_key":self.asr_key.get()}; self.transcribe_controls[batch_id]=controls; self.transcribe_contexts[batch_id]=context
         saved_task=self.task_store.create("transcribe",f"文案与 SRT 批次 {batch_id}",str(transcribe_dir),[{"path":str(video),"name":video.name} for video in videos]); self.transcribe_task_ids[batch_id]=saved_task["id"]; self.task_store.update_task(saved_task["id"],status="运行中")
