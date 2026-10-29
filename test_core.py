@@ -72,10 +72,11 @@ class TestCore(unittest.TestCase):
 
     def test_step_three_selects_and_scans_video_srt_directory(self):
         source=Path(__file__).with_name("main.py").read_text(encoding="utf-8")
-        self.assertIn('title="选择包含视频和同名 SRT 的目录"',source)
-        self.assertIn('text="识别目录",style="Primary.TButton",command=recognize_directory',source)
+        self.assertIn('title="选择包含 SRT 的目录"',source)
+        self.assertIn('text="识别 SRT 目录",style="Primary.TButton",command=recognize_directory',source)
         self.assertNotIn('win.after_idle(recognize_directory)',source)
         self.assertIn('for path in directory.glob("*.srt")',source)
+        self.assertIn('source_dir=self.project/STEP_DOWNLOAD_DIR',source)
 
     def test_text_io_reads_legacy_gb18030_and_writes_utf8_without_bom(self):
         from tempfile import TemporaryDirectory

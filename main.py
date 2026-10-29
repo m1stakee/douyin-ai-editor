@@ -702,41 +702,43 @@ class App(tk.Tk):
         """Open the batch pairing UI and generate answer files without cutting video."""
         win=tk.Toplevel(self); win.title("3  生成答案"); win.geometry("920x600"); win.minsize(760,480)
         outer=ttk.Frame(win,padding=14); outer.pack(fill="both",expand=True); outer.columnconfigure(0,weight=1); outer.rowconfigure(2,weight=1)
-        ttk.Label(outer,text="批量导入视频和同名 SRT",style="Section.TLabel").grid(row=0,column=0,sticky="w")
-        ttk.Label(outer,text="例如：视频 001.mp4 必须对应字幕 001.srt；本步骤只生成答案，不执行剪辑或去闪。",style="Muted.TLabel").grid(row=1,column=0,sticky="w",pady=(3,9))
-        videos={}; srts={}; status=tk.StringVar(value="请导入视频和 SRT")
+        ttk.Label(outer,text="导入或识别 SRT",style="Section.TLabel").grid(row=0,column=0,sticky="w")
+        ttk.Label(outer,text="软件按 SRT 文件名自动匹配第一步下载的视频；本步骤只生成答案，不执行剪辑或去闪。",style="Muted.TLabel").grid(row=1,column=0,sticky="w",pady=(3,9))
+        videos={}; srts={}; status=tk.StringVar(value="请导入 SRT 或识别 SRT 目录")
         tree=ttk.Treeview(outer,columns=("video","srt","state"),show="headings"); tree.heading("video",text="视频"); tree.heading("srt",text="同名 SRT"); tree.heading("state",text="状态"); tree.column("video",width=310); tree.column("srt",width=310); tree.column("state",width=130,anchor="center"); tree.grid(row=2,column=0,sticky="nsew")
         def refresh():
+            video_lookup={}
+            source_dir=self.project/STEP_DOWNLOAD_DIR if self.project else None
+            for path in rename_service.list_videos(source_dir) if source_dir and source_dir.is_dir() else []:
+                video_lookup[path.stem.casefold()]=path.resolve(); video_lookup[rename_service.safe_stem(path.stem).casefold()]=path.resolve()
+            videos.clear()
+            for stem in srts:
+                if stem in video_lookup: videos[stem]=video_lookup[stem]
             for item in tree.get_children(): tree.delete(item)
-            for stem in sorted(set(videos)|set(srts)):
-                state="已配对" if stem in videos and stem in srts else ("缺少 SRT" if stem in videos else "缺少视频")
+            for stem in sorted(srts):
+                state="已配对" if stem in videos else "第一步缺少同名视频"
                 tree.insert("","end",iid=stem,values=(videos.get(stem,Path("")).name,srts.get(stem,Path("")).name,state))
             matched=len(set(videos)&set(srts)); status.set(f"视频 {len(videos)} 个，SRT {len(srts)} 个，已配对 {matched} 组")
-        def import_videos():
-            for value in filedialog.askopenfilenames(parent=win,title="导入视频（可多选）",filetypes=[("视频","*.mp4;*.mov;*.mkv;*.webm;*.m4v"),("所有文件","*.*")]):
-                path=Path(value).resolve(); videos[path.stem.casefold()]=path
-            refresh()
         def import_srts():
             for value in filedialog.askopenfilenames(parent=win,title="导入 SRT（可多选）",filetypes=[("SRT 字幕","*.srt"),("所有文件","*.*")]):
                 path=Path(value).resolve(); srts[path.stem.casefold()]=path
             refresh()
         def recognize_directory():
-            initial=self.answer_directory.get() or str(self.project or Path.cwd())
-            selected=filedialog.askdirectory(parent=win,title="选择包含视频和同名 SRT 的目录",initialdir=initial)
+            initial=str(self.project/STEP_TRANSCRIBE_DIR) if self.project and (self.project/STEP_TRANSCRIBE_DIR).is_dir() else str(self.project or Path.cwd())
+            selected=filedialog.askdirectory(parent=win,title="选择包含 SRT 的目录",initialdir=initial)
             if not selected: return
-            videos.clear(); srts.clear(); directory=Path(selected)
-            for path in rename_service.list_videos(directory): videos[path.stem.casefold()]=path.resolve()
+            srts.clear(); directory=Path(selected)
             for path in directory.glob("*.srt"): srts[path.stem.casefold()]=path.resolve()
             refresh()
-        controls=ttk.Frame(outer); controls.grid(row=3,column=0,sticky="ew",pady=(9,0)); ttk.Button(controls,text="识别目录",style="Primary.TButton",command=recognize_directory).pack(side="left"); ttk.Button(controls,text="导入视频",command=import_videos).pack(side="left",padx=(7,0)); ttk.Button(controls,text="导入 SRT",command=import_srts).pack(side="left",padx=7); ttk.Button(controls,text="清空",command=lambda:(videos.clear(),srts.clear(),refresh())).pack(side="left"); ttk.Label(controls,textvariable=status,style="Muted.TLabel").pack(side="right")
+        controls=ttk.Frame(outer); controls.grid(row=3,column=0,sticky="ew",pady=(9,0)); ttk.Button(controls,text="识别 SRT 目录",style="Primary.TButton",command=recognize_directory).pack(side="left"); ttk.Button(controls,text="导入 SRT",command=import_srts).pack(side="left",padx=7); ttk.Button(controls,text="清空",command=lambda:(srts.clear(),refresh())).pack(side="left"); ttk.Label(controls,textvariable=status,style="Muted.TLabel").pack(side="right")
         output_row=ttk.Frame(outer); output_row.grid(row=4,column=0,sticky="ew",pady=(10,0)); output_row.columnconfigure(1,weight=1); output_var=tk.StringVar(value=self.answer_directory.get()); ttk.Label(output_row,text="保存目录").grid(row=0,column=0,padx=(0,8)); ttk.Entry(output_row,textvariable=output_var).grid(row=0,column=1,sticky="ew"); ttk.Button(output_row,text="选择",command=lambda:output_var.set(filedialog.askdirectory(parent=win,initialdir=output_var.get() or str(self.project or Path.cwd())) or output_var.get())).grid(row=0,column=2,padx=(7,0))
         def begin():
-            missing=[stem for stem in set(videos)|set(srts) if stem not in videos or stem not in srts]
-            if not videos or missing: messagebox.showerror("生成答案","存在未配对文件，请保证每个视频都有完全同名的 SRT",parent=win); return
+            missing=[stem for stem in srts if stem not in videos]
+            if not srts or missing: messagebox.showerror("生成答案","存在未配对的 SRT，请确认第一步下载目录中有同名视频",parent=win); return
             output_dir=Path(output_var.get()).expanduser()
             if not output_dir.is_dir(): messagebox.showerror("生成答案","选择的目录不存在，软件不会自动创建目录",parent=win); return
             if not self.llm_key.get().strip(): messagebox.showerror("生成答案","请先在主界面配置 ChatGPT 接口 Key",parent=win); return
-            pairs=[(videos[stem],srts[stem]) for stem in sorted(videos)]; self.answer_directory.set(str(output_dir)); self.save_all_settings(False); start_button.configure(state="disabled"); status.set("正在生成答案…")
+            pairs=[(videos[stem],srts[stem]) for stem in sorted(srts)]; self.answer_directory.set(str(output_dir)); self.save_all_settings(False); start_button.configure(state="disabled"); status.set("正在生成答案…")
             def work():
                 good=0
                 for video_path,srt_path in pairs:
