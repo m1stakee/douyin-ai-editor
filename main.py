@@ -838,12 +838,12 @@ class App(tk.Tk):
                 entry_title=re.sub(r"的?答案1$","",path.stem).strip() or path.stem
                 entries.append({"path":path,"title":entry_title,"text":text}); existing.add(str(path.resolve()).casefold()); added.append(len(entries)-1)
             if added: show_entry(added[0])
-            elif not entries: count.set("没有可用的答案 TXT")
+            elif not entries: count.set("没有可用的文案 TXT")
             if entries: previous_button.configure(state="normal"); next_button.configure(state="normal")
         def clear_all():
             save_current(); entries.clear(); current[0]=0; loading[0]=True
             title.set(""); content.delete("1.0","end"); loading[0]=False
-            count.set("已清空，请重新导入答案 TXT"); previous_button.configure(state="disabled"); next_button.configure(state="disabled")
+            count.set("已清空，请重新导入文案 TXT"); previous_button.configure(state="disabled"); next_button.configure(state="disabled")
         def load_directory():
             directory=filedialog.askdirectory(title="选择文案目录",initialdir=self.answer_directory.get() or str(self.project),parent=win)
             if directory:
@@ -906,7 +906,7 @@ class App(tk.Tk):
         def begin():
             save_current(); chosen=[dict(item) for item in entries]; instruction=prompt.get("1.0","end").strip(); selected_provider="New API"; compatible=True
             key=self.llm_key.get().strip(); selected_model=self.llm_model.get().strip(); base_url=self.llm_url.get().strip()
-            if not chosen: messagebox.showinfo("AI 改写","请先从目录读取或导入答案 TXT",parent=win); return
+            if not chosen: messagebox.showinfo("AI 改写","请先读取目录或导入文案 TXT",parent=win); return
             if not instruction: messagebox.showinfo("AI 改写","请填写改写提示词",parent=win); return
             if not key: messagebox.showerror("AI 改写","请先在接口与工具配置中填写所选服务的 API Key",parent=win); return
             output_names=[rename_service.safe_stem(item["title"]) for item in chosen]
