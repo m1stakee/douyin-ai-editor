@@ -12,6 +12,7 @@ import subprocess
 import sys
 import time
 import wave
+from text_io import read_text, write_text
 import csv
 import io
 import ctypes
@@ -425,7 +426,7 @@ def synthesize_script(
             f"{item['index']}\n{_srt_timestamp(item['start'])} --> {_srt_timestamp(item['end'])}\n{item['text']}"
             for item in report
         ]
-        srt_temporary.write_text("\n\n".join(blocks) + "\n", encoding="utf-8-sig")
+        write_text(srt_temporary, "\n\n".join(blocks) + "\n")
         wav_temporary.replace(target)
         srt_temporary.replace(subtitle)
     except Exception:
@@ -636,7 +637,7 @@ def synthesize_srt(
 ) -> tuple[Path, list[dict]]:
     """逐句合成 SRT，并按字幕开始时间混合为一条 24kHz 单声道 WAV。"""
     source = Path(srt_path).expanduser().resolve()
-    cues = parse_srt(source.read_text(encoding="utf-8-sig"))
+    cues = parse_srt(read_text(source))
     target = Path(output_path).expanduser().resolve()
     if target.suffix.lower() != ".wav":
         target = target.with_suffix(".wav")

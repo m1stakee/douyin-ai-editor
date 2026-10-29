@@ -10,12 +10,22 @@ from downloader import extract_share_urls
 from batch_service import run_batch, transcribe_worker_count
 from app_config import save_settings, load_settings
 from asr import prepared_asr_audio, transcribe, transcribe_request_config, segments_to_srt, segments_to_text, write_transcript_outputs
-from media import fixed_scenes, build_srt_cut_plan, write_cut_subtitles
+from media import fixed_scenes, build_srt_cut_plan, write_cut_subtitles, write_cut_plan_result
 from voicevox_service import SrtCue
 from ai import chat, rewrite_text, validate_plan
 from task_store import TaskStore
 from license_client import verify_license, verify_saved_license
+from text_io import read_text, write_text
 class TestCore(unittest.TestCase):
+    def test_text_io_reads_legacy_gb18030_and_writes_utf8_without_bom(self):
+        from tempfile import TemporaryDirectory
+        with TemporaryDirectory() as folder:
+            legacy=Path(folder)/"旧文案.txt"; legacy.write_bytes("中文文案".encode("gb18030"))
+            self.assertEqual(read_text(legacy),"中文文案")
+            output=Path(folder)/"新文案.txt"; write_text(output,"中文文案\n")
+            self.assertFalse(output.read_bytes().startswith(b"\xef\xbb\xbf"))
+            self.assertEqual(output.read_bytes().decode("utf-8"),"中文文案\n")
+
     @patch("ai.requests.post")
     def test_json_chat_retries_when_gateway_rejects_response_format(self, post):
         rejected=Mock(ok=False,status_code=400,text='unsupported response_format'); rejected.json.return_value={"error":{"message":"unsupported response_format"}}
@@ -52,6 +62,14 @@ class TestCore(unittest.TestCase):
             self.assertIn("00:00:00,000 --> 00:00:10,000",srt.read_text(encoding="utf-8-sig"))
             self.assertIn("00:00:09,670 --> 00:00:19,670",srt.read_text(encoding="utf-8-sig"))
             self.assertEqual(txt.read_text(encoding="utf-8-sig"),"开头\n结尾\n")
+
+    def test_write_cut_plan_result_saves_requested_format(self):
+        from tempfile import TemporaryDirectory
+        cues=[SrtCue(i, (i-1)*10, i*10-1, f"字幕{i}") for i in range(1, 31)]
+        plan=build_srt_cut_plan(cues, 300,[{"start":5,"end":7},{"start":14,"end":16},{"start":23,"end":25}])
+        with TemporaryDirectory() as folder:
+            result=Path(folder)/"plan.txt"; write_cut_plan_result(cues,plan,str(result)); text=result.read_text(encoding="utf-8-sig")
+            self.assertIn("删除 5 段~7 段：",text); self.assertIn("预计剪掉时长：",text)
     @patch("license_client.requests.post")
     def test_license_verification_posts_to_server(self, post):
         post.return_value.json.return_value={"valid":True,"message":"授权验证成功"}
@@ -287,7 +305,7 @@ class TestCore(unittest.TestCase):
             "download_workers": "6",
             "ffmpeg": "D:/tools/ffmpeg.exe", "source_lang": "日语",
             "henghengmao_api_key": "download-key", "dashscope_api_key": "bailian-key",
-            "llm_url": "https://example.com/v1", "llm_key": "llm-key",
+            "llm_base_url": "https://example.com/v1", "llm_key": "llm-key",
             "llm_model": "qwen-plus", "target_lang": "韩语",
             "writing_style": "故事叙述", "writing_length": "缩短文案"
         }

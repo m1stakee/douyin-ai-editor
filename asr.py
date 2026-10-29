@@ -12,6 +12,7 @@ import time
 import requests
 
 from app_config import dashscope_key
+from text_io import write_text
 
 MODEL = "paraformer-v2"
 UPLOAD_POLICY_URL = "https://dashscope.aliyuncs.com/api/v1/uploads"
@@ -48,15 +49,15 @@ def segments_to_text(segments: list[dict]) -> str:
 
 
 def write_transcript_outputs(output_dir: Path, stem: str, segments: list[dict]) -> tuple[Path, Path, Path]:
-    """Write transcript artifacts as UTF-8 without a BOM."""
+    """Write the matched JSON, SRT and TXT transcript artifacts as UTF-8."""
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
     json_path = output_dir / f"{stem}.json"
     srt_path = output_dir / f"{stem}.srt"
     txt_path = output_dir / f"{stem}.txt"
-    json_path.write_text(json.dumps(segments, ensure_ascii=False, indent=2), encoding="utf-8")
-    srt_path.write_text(segments_to_srt(segments), encoding="utf-8")
-    txt_path.write_text(segments_to_text(segments), encoding="utf-8")
+    write_text(json_path, json.dumps(segments, ensure_ascii=False, indent=2), bom=False)
+    write_text(srt_path, segments_to_srt(segments))
+    write_text(txt_path, segments_to_text(segments))
     return json_path, srt_path, txt_path
 
 

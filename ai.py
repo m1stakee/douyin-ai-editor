@@ -1,6 +1,21 @@
 import json
 import requests
 
+def list_models(base_url: str, key: str) -> list[str]:
+    """Read model IDs exposed by an OpenAI-compatible gateway."""
+    if not base_url.strip(): raise ValueError("请填写接口地址")
+    if not key.strip(): raise ValueError("请先填写接口 Key")
+    url=base_url.strip().rstrip("/")
+    if url.endswith("/chat/completions"): url=url[:-len("/chat/completions")]
+    if not url.endswith("/v1"): url += "/v1"
+    response=requests.get(url+"/models",headers={"Authorization":f"Bearer {key.strip()}","Content-Type":"application/json"},timeout=30)
+    if not response.ok: raise ValueError(f"模型列表请求失败（HTTP {response.status_code}）：{_response_error(response)}")
+    try: data=response.json().get("data",[])
+    except (TypeError,ValueError): raise ValueError("模型列表返回格式无效")
+    models=sorted({str(item.get("id")) for item in data if isinstance(item,dict) and item.get("id")},key=str.casefold)
+    if not models: raise ValueError("接口没有返回可用模型")
+    return models
+
 def _json_content(value: str) -> dict:
     text=str(value or "").strip()
     if text.startswith("```"):
@@ -72,12 +87,17 @@ def edit_plan(segments, scenes, rewrite_result, base_url, key, model, reasoning_
     return chat(base_url,key,model,system,user,reasoning_effort)
 
 def srt_deletion_plan(cues, duration, base_url, key, model, reasoning_effort=None, correction=""):
-    system=("你是解说视频字幕剪辑规划器。只能通过整段删除字幕条目来剪辑，绝不能修改字幕文字。"
-            "成片保留时长必须为原视频的60%到80%；每处删除至少连续3条字幕，整个视频至少3处删除。"
-            "执行视频剪辑时，每个删除区间的结束时间会比最后一条字幕结束时间提前1秒，请在规划总时长时考虑这1秒保留量。"
-            "优先保留开头引子、核心观点或结论、关键案例或反转、结尾总结；优先删除重复解释、赘述、口头禅和无信息填充。"
-            "只返回JSON对象，不要Markdown和解释。格式必须为 {\"delete_ranges\":[{\"start\":11,\"end\":20}]}。"
-            "start和end是输入数组中的position，不是SRT原始编号；删除范围不能重叠或相邻。")
+    system=("我会发给你一段解说视频的 .srt 字幕文件。任务：只通过整段删除字幕行进行剪辑，不改任何字句，把成片时长控制在原视频60%~80%的区间内。剪辑规则（从高到低优先级）：\n"
+            "1.时长是最高优先级：结合srt文件中给出的时间轴，剪辑后成品保留60%~80%之间的时间即可，不需要尽量接近某个具体时长\n"
+            "2.剪辑方式：只能整段删字幕；每次删除要删掉至少连续 3 条字幕行；整个视频里要有至少 3 处这样的删除。\n"
+            "3.内容取舍原则（帮助你更快判断）：优先保留：开头吸引人的引子、核心观点/结论、关键案例或反转、结尾总结；优先删除：重复解释、赘述、口头禅、无信息填充。\n"
+            "4.输出格式（非常重要）：\n用“保留/删除 + 段号范围 + 时间范围 + 首两句文字”的形式输出，例如：\n"
+            "保留 1 段~10 段：\n（第 1 段起始时间） --> （第 10 段结束时间）\n只输出第 1 段、第2段的文字内容\n"
+            "删除 11 段~20 段：\n（第 11 段起始时间） --> （第 20 段结束时间）\n只输出第 11 段、第12段的文字内容\n"
+            "不要输出任何原因解释或分析过程。\n"
+            "5.最后单独写一行：\n“预计剪掉时长：XX 分 XX 秒；保留时长：XX 分 XX 秒。”\n时间可以精确到秒，不必精确到毫秒。\n"
+            "为便于程序执行，请把最终选择仅编码为JSON对象，不要Markdown和解释，格式必须为 {\"delete_ranges\":[{\"start\":11,\"end\":20}]}。"
+            "start和end使用输入数组中的position；删除范围不能重叠或相邻。程序会根据JSON按上述格式保存完整剪辑结果。")
     payload={"video_duration_seconds":duration,"subtitles":[{"position":i,"start":x.start,"end":x.end,"text":x.text} for i,x in enumerate(cues,1)]}
     if correction: payload["previous_plan_error"]=correction
     result=chat(base_url,key,model,system,json.dumps(payload,ensure_ascii=False),reasoning_effort)

@@ -2,6 +2,7 @@ import json
 import os
 import sys
 from pathlib import Path
+from text_io import read_text, write_text
 
 def _root() -> Path:
     root = Path(sys.executable).parent if getattr(sys, "frozen", False) else Path(__file__).resolve().parent
@@ -23,14 +24,14 @@ def load_settings(path: Path | None = None) -> dict:
         target = _legacy_settings_path()
     if not target.exists(): return {}
     try:
-        value = json.loads(target.read_text(encoding="utf-8"))
+        value = json.loads(read_text(target))
         return value if isinstance(value, dict) else {}
     except (OSError, json.JSONDecodeError): return {}
 
 def save_settings(values: dict, path: Path | None = None) -> Path:
     target = path or settings_path()
     target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_text(json.dumps(values, ensure_ascii=False, indent=2), encoding="utf-8")
+    write_text(target, json.dumps(values, ensure_ascii=False, indent=2), bom=False)
     return target
 
 def _local_values() -> dict:
@@ -38,7 +39,7 @@ def _local_values() -> dict:
     if not path.exists() and _legacy_config_path().exists():
         path = _legacy_config_path()
     if not path.exists(): return {}
-    try: return json.loads(path.read_text(encoding="utf-8"))
+    try: return json.loads(read_text(path))
     except (OSError, json.JSONDecodeError): return {}
 
 def credential(env_name: str, file_name: str) -> str:

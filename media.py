@@ -2,6 +2,7 @@ import json
 import subprocess
 import sys
 from pathlib import Path
+from text_io import write_text
 
 CUT_END_ADVANCE_SECONDS = 1.0
 CUT_TRANSITION_SECONDS = 0.33
@@ -154,5 +155,34 @@ def write_cut_subtitles(cues, plan: dict, srt_output: str, text_output: str) -> 
         millis = max(0, round(seconds * 1000)); hours, millis = divmod(millis, 3600000); minutes, millis = divmod(millis, 60000); secs, millis = divmod(millis, 1000)
         return f"{hours:02d}:{minutes:02d}:{secs:02d},{millis:03d}"
     blocks = [f"{i}\n{stamp(start)} --> {stamp(end)}\n{text}" for i, (start, end, text) in enumerate(rows, 1)]
-    Path(srt_output).write_text("\n\n".join(blocks) + ("\n" if blocks else ""), encoding="utf-8-sig")
-    Path(text_output).write_text("\n".join(text for _, _, text in rows) + ("\n" if rows else ""), encoding="utf-8-sig")
+    write_text(srt_output, "\n\n".join(blocks) + ("\n" if blocks else ""))
+    write_text(text_output, "\n".join(text for _, _, text in rows) + ("\n" if rows else ""))
+
+
+def write_cut_plan_result(cues, plan: dict, output: str) -> None:
+    """Save the clipping plan in the same format shown in the UI/prompt."""
+    def stamp(seconds: float) -> str:
+        total = max(0, round(float(seconds)))
+        hours, total = divmod(total, 3600); minutes, seconds = divmod(total, 60)
+        return f"{hours:02d}:{minutes:02d}:{seconds:02d}"
+    def duration_text(seconds: float) -> str:
+        minutes, seconds = divmod(max(0, round(float(seconds))), 60)
+        return f"{minutes} 分 {seconds} 秒"
+    def preview(start: int, end: int) -> str:
+        return "、".join(str(cues[index - 1].text).replace("\n", " ") for index in range(start, min(end, start + 1) + 1))
+    def section(kind: str, start: int, end: int, begin_time: float, finish_time: float) -> str:
+        return f"{kind} {start} 段~{end} 段：\n{stamp(begin_time)} --> {stamp(finish_time)}\n{preview(start, end)}"
+    deleted_indices = {index for _, _, start, end in plan.get("deleted", []) for index in range(start, end + 1)}
+    deleted_by_start = {begin: (begin, finish, actual_start, actual_end) for actual_start, actual_end, begin, finish in plan.get("deleted", [])}
+    entries = []; index = 1
+    while index <= len(cues):
+        if index in deleted_indices and index in deleted_by_start:
+            begin, finish, actual_start, actual_end = deleted_by_start[index]
+            entries.append(section("删除", begin, finish, actual_start, actual_end)); index = finish + 1; continue
+        begin = index
+        while index <= len(cues) and index not in deleted_indices: index += 1
+        finish = index - 1
+        if finish >= begin: entries.append(section("保留", begin, finish, cues[begin - 1].start, cues[finish - 1].end))
+    result = "\n\n".join(entries)
+    result += f"\n\n预计剪掉时长：{duration_text(plan.get('deleted_seconds', 0))}；保留时长：{duration_text(plan.get('kept_seconds', 0))}。\n"
+    write_text(output, result)

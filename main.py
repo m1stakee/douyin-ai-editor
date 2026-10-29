@@ -5,6 +5,7 @@ import re
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
 import downloader_service, media, asr, ai, rename_service, voicevox_service
+from text_io import read_text, write_text
 from batch_service import run_batch, transcribe_worker_count
 from app_config import ark_key, dashscope_key, henghengmao_key, load_settings, save_settings
 from task_store import TaskStore
@@ -36,7 +37,7 @@ class App(tk.Tk):
         self.ffmpeg=tk.StringVar(value=asr.resolve_ffmpeg())
         self.download_key=tk.StringVar(value=saved.get("henghengmao_api_key", "")); self.asr_key=tk.StringVar(value=saved.get("dashscope_api_key") or dashscope_key())
         self.download_quality=tk.StringVar(value=saved.get("download_quality","推荐")); self.download_workers=tk.StringVar(value=saved.get("download_workers","8")); self.source_lang=tk.StringVar(value=saved.get("source_lang","中文"))
-        self.llm_key=tk.StringVar(value=saved.get("llm_key","")); self.ark_key=tk.StringVar(value=saved.get("ark_api_key") or ark_key()); self.lang=tk.StringVar(value=saved.get("target_lang","英语"))
+        self.llm_url=tk.StringVar(value=saved.get("llm_base_url") or saved.get("llm_url",OPENAI_COMPAT_URL)); self.llm_key=tk.StringVar(value=saved.get("llm_key","")); self.llm_model=tk.StringVar(value=saved.get("llm_model",OPENAI_COMPAT_MODEL)); self.llm_models=[]; self.ark_key=tk.StringVar(value=saved.get("ark_api_key") or ark_key()); self.lang=tk.StringVar(value=saved.get("target_lang","英语"))
         self.style=tk.StringVar(value=saved.get("writing_style","自然口播")); self.length=tk.StringVar(value=saved.get("writing_length","保持原时长"))
         self.license_key=tk.StringVar(value=saved.get("license_key", ""))
         self.voicevox_path=tk.StringVar(value=saved.get("voicevox_path", "")); self.voicevox_voice=tk.StringVar(value=saved.get("voicevox_voice", "")); self.voicevox_speed=tk.StringVar(value=saved.get("voicevox_speed", "1.0")); self.voicevox_pitch=tk.StringVar(value=saved.get("voicevox_pitch", "0.0")); self.voicevox_volume=tk.StringVar(value=saved.get("voicevox_volume", "1.0")); self.voicevox_pause=tk.StringVar(value=saved.get("voicevox_pause", "0.3")); self.voicevox_output_directory=tk.StringVar(value=saved.get("voicevox_output_directory", "")); self.voicevox_output_format=tk.StringVar(value=str(saved.get("voicevox_output_format", "WAV")).upper()); self.voicevox_use_gpu=tk.BooleanVar(value=saved.get("voicevox_use_gpu", False)); self.voicevox_process=None; self.voicevox_process_gpu=None; self.voicevox_window=None
@@ -103,7 +104,8 @@ class App(tk.Tk):
         ttk.Label(settings,text="处理设置",style="Section.TLabel").grid(row=0,column=0,sticky="w"); ttk.Label(settings,text="保存后下次启动自动恢复",style="Muted.TLabel").grid(row=1,column=0,sticky="w",pady=(3,9))
         self._combo(settings,"视频清晰度",self.download_quality,["推荐","最高","1080P","720P"],2,0); self._combo(settings,"原声语言",self.source_lang,["中文","英语","日语","韩语","西班牙语","法语","德语"],3,0)
         self.advanced_button=ttk.Button(settings,text="展开接口与工具配置",command=self.toggle_advanced); self.advanced_button.grid(row=4,column=0,sticky="ew",pady=(9,5))
-        self.advanced=ttk.Frame(settings,style="Panel.TFrame"); self._field(self.advanced,"软件卡密",self.license_key,0,0,secret=True); self._field(self.advanced,"哼哼猫 Key",self.download_key,1,0,secret=True); self._field(self.advanced,"阿里百炼 Key",self.asr_key,2,0,secret=True); self._field(self.advanced,"ChatGPT 接口 Key",self.llm_key,3,0,secret=True); self._field(self.advanced,"豆包 Ark Key",self.ark_key,4,0,secret=True)
+        self.advanced=ttk.Frame(settings,style="Panel.TFrame"); self._field(self.advanced,"软件卡密",self.license_key,0,0,secret=True); self._field(self.advanced,"哼哼猫 Key",self.download_key,1,0,secret=True); self._field(self.advanced,"阿里百炼 Key",self.asr_key,2,0,secret=True); self._field(self.advanced,"New API Base URL",self.llm_url,3,0); self._field(self.advanced,"ChatGPT 接口 Key",self.llm_key,4,0,secret=True)
+        model_box=ttk.Frame(self.advanced,style="Panel.TFrame"); model_box.grid(row=5,column=0,columnspan=2,sticky="ew",pady=3); ttk.Label(model_box,text="New API 模型",width=11,style="Panel.TLabel").pack(side="left"); self.llm_model_picker=ttk.Combobox(model_box,textvariable=self.llm_model,values=[OPENAI_COMPAT_MODEL],state="normal"); self.llm_model_picker.pack(side="left",fill="x",expand=True); ttk.Button(model_box,text="获取模型列表",command=self.fetch_llm_models).pack(side="left",padx=(5,0)); self._field(self.advanced,"豆包 Ark Key",self.ark_key,6,0,secret=True)
         controls=ttk.Frame(settings,style="Panel.TFrame"); controls.grid(row=6,column=0,sticky="ew",pady=(9,0)); ttk.Button(controls,text="批量重命名",command=self.open_rename_window).pack(side="left"); ttk.Button(controls,text="保存全部配置",style="Primary.TButton",command=self.save_all_settings).pack(side="right")
         logs=ttk.Frame(body,style="Panel.TFrame",padding=16); logs.grid(row=1,column=0,columnspan=2,sticky="nsew"); logs.columnconfigure(0,weight=1); logs.rowconfigure(1,weight=1); ttk.Label(logs,text="任务记录",style="Section.TLabel").grid(row=0,column=0,sticky="w",pady=(0,8))
         log_frame=tk.Frame(logs,bg="#182333"); log_frame.grid(row=1,column=0,sticky="nsew"); self.text=tk.Text(log_frame,height=10,wrap="word",font=("Consolas",9),bg="#182333",fg="#D8E0EA",insertbackground="#FFFFFF",relief="flat",padx=12,pady=10); log_scroll=ttk.Scrollbar(log_frame,orient="vertical",command=self.text.yview); self.text.configure(yscrollcommand=log_scroll.set); self.text.pack(side="left",fill="both",expand=True); log_scroll.pack(side="right",fill="y")
@@ -122,7 +124,22 @@ class App(tk.Tk):
         if self.advanced.winfo_manager(): self.advanced.grid_remove(); self.advanced_button.configure(text="展开接口与工具配置")
         else: self.advanced.grid(row=5,column=0,sticky="ew"); self.advanced_button.configure(text="收起接口与工具配置")
     def settings_values(self):
-        return {"output_directory":str(self.project or ""),"download_quality":self.download_quality.get(),"download_workers":self.download_workers.get(),"source_lang":self.source_lang.get(),"henghengmao_api_key":self.download_key.get(),"dashscope_api_key":self.asr_key.get(),"llm_key":self.llm_key.get(),"ark_api_key":self.ark_key.get(),"target_lang":self.lang.get(),"writing_style":self.style.get(),"writing_length":self.length.get(),"license_key":self.license_key.get(),"voicevox_path":self.voicevox_path.get(),"voicevox_voice":self.voicevox_voice.get(),"voicevox_speed":self.voicevox_speed.get(),"voicevox_pitch":self.voicevox_pitch.get(),"voicevox_volume":self.voicevox_volume.get(),"voicevox_pause":self.voicevox_pause.get(),"voicevox_output_directory":self.voicevox_output_directory.get(),"voicevox_output_format":self.voicevox_output_format.get(),"voicevox_use_gpu":self.voicevox_use_gpu.get(),"rewrite_prompts":self.rewrite_prompts}
+        return {"output_directory":str(self.project or ""),"download_quality":self.download_quality.get(),"download_workers":self.download_workers.get(),"source_lang":self.source_lang.get(),"henghengmao_api_key":self.download_key.get(),"dashscope_api_key":self.asr_key.get(),"llm_base_url":self.llm_url.get().strip(),"llm_key":self.llm_key.get(),"llm_model":self.llm_model.get(),"ark_api_key":self.ark_key.get(),"target_lang":self.lang.get(),"writing_style":self.style.get(),"writing_length":self.length.get(),"license_key":self.license_key.get(),"voicevox_path":self.voicevox_path.get(),"voicevox_voice":self.voicevox_voice.get(),"voicevox_speed":self.voicevox_speed.get(),"voicevox_pitch":self.voicevox_pitch.get(),"voicevox_volume":self.voicevox_volume.get(),"voicevox_pause":self.voicevox_pause.get(),"voicevox_output_directory":self.voicevox_output_directory.get(),"voicevox_output_format":self.voicevox_output_format.get(),"voicevox_use_gpu":self.voicevox_use_gpu.get(),"rewrite_prompts":self.rewrite_prompts}
+    def fetch_llm_models(self):
+        self.status.set("正在获取模型列表…")
+        def work():
+            try:
+                models=ai.list_models(self.llm_url.get(),self.llm_key.get())
+                self.after(0,lambda:self._show_llm_models(models))
+            except Exception as exc: self.after(0,lambda:self._llm_models_failed(str(exc)))
+        self.run(work)
+    def _show_llm_models(self, models):
+        self.llm_models=models; self.llm_model_picker.configure(values=models)
+        if self.llm_model.get() not in models: self.llm_model.set("gpt-6.1-sol" if "gpt-6.1-sol" in models else models[0])
+        self.status.set(f"已获取 {len(models)} 个模型")
+    def _llm_models_failed(self, error):
+        self.status.set("获取模型列表失败")
+        messagebox.showerror("获取模型列表失败",error,parent=self)
     def save_all_settings(self,notify=True):
         path=save_settings(self.settings_values()); self.status.set("配置已保存")
         if notify: messagebox.showinfo("保存配置",f"全部配置已保存到本机：{path.name}")
@@ -582,7 +599,7 @@ class App(tk.Tk):
                 control.checkpoint(); seg=asr.transcribe(audio_path,key=context["api_key"],language=context["source_lang"],on_status=status)
             control.checkpoint(); self.set_transcribe_progress(batch_id,index,85,"生成文案/SRT")
             output_dir=Path(context["output_directory"]); output_dir.mkdir(parents=True,exist_ok=True)
-            json_path,srt_path,txt_path=asr.write_transcript_outputs(output_dir,video.stem,seg)
+            json_path,srt_path,txt_path=asr.write_transcript_outputs(output_dir,rename_service.safe_stem(video.stem),seg)
             self.set_transcribe_progress(batch_id,index,100,"完成"); return (srt_path.name,txt_path.name)
         except Exception:
             self.set_transcribe_progress(batch_id,index,0,"失败"); raise
@@ -601,6 +618,7 @@ class App(tk.Tk):
         videos=[]
         for video in rename_service.list_videos(source_dir):
             srt=srt_dir/f"{video.stem}.srt"
+            if not srt.is_file(): srt=srt_dir/f"{rename_service.safe_stem(video.stem)}.srt"
             if srt.is_file(): videos.append((video,srt))
         if not videos:
             messagebox.showinfo("字幕剪辑","步骤 1 和步骤 2 中没有可匹配的视频与 SRT",parent=self); return
@@ -656,11 +674,11 @@ class App(tk.Tk):
                 for item in chosen:
                     try:
                         self.after(0,lambda i=item:(i["progress"].configure(value=10),i["label"].set("分析字幕")))
-                        duration=media.probe_duration(asr.resolve_ffmpeg(),str(item["video"])); cues=voicevox_service.parse_srt(item["srt"].read_text(encoding="utf-8-sig")); ranges=ai.srt_deletion_plan(cues,duration,OPENAI_COMPAT_URL,self.llm_key.get(),OPENAI_COMPAT_MODEL,OPENAI_COMPAT_REASONING_EFFORT)
+                        duration=media.probe_duration(asr.resolve_ffmpeg(),str(item["video"])); cues=voicevox_service.parse_srt(read_text(item["srt"])); ranges=ai.srt_deletion_plan(cues,duration,self.llm_url.get(),self.llm_key.get(),self.llm_model.get(),OPENAI_COMPAT_REASONING_EFFORT)
                         try: plan=media.build_srt_cut_plan(cues,duration,ranges)
                         except ValueError as first_error:
-                            ranges=ai.srt_deletion_plan(cues,duration,OPENAI_COMPAT_URL,self.llm_key.get(),OPENAI_COMPAT_MODEL,OPENAI_COMPAT_REASONING_EFFORT,str(first_error)); plan=media.build_srt_cut_plan(cues,duration,ranges)
-                        out=output_dir/f"{item['video'].stem}_剪辑.mp4"; media.execute_srt_cut(asr.resolve_ffmpeg(),str(item["video"]),plan,str(out)); media.write_cut_subtitles(cues,plan,str(output_dir/f"{item['video'].stem}_剪辑.srt"),str(output_dir/f"{item['video'].stem}_剪辑.txt")); item["detail"]=f"完成\n输出视频：{out}"; good+=1; self.after(0,lambda i=item:(i["progress"].configure(value=100),i["label"].set("完成")))
+                            ranges=ai.srt_deletion_plan(cues,duration,self.llm_url.get(),self.llm_key.get(),self.llm_model.get(),OPENAI_COMPAT_REASONING_EFFORT,str(first_error)); plan=media.build_srt_cut_plan(cues,duration,ranges)
+                        output_stem=rename_service.safe_stem(item["video"].stem); out=output_dir/f"{output_stem}_剪辑.mp4"; plan_out=output_dir/f"{output_stem}_剪辑方案.txt"; media.execute_srt_cut(asr.resolve_ffmpeg(),str(item["video"]),plan,str(out)); media.write_cut_subtitles(cues,plan,str(output_dir/f"{output_stem}_剪辑.srt"),str(output_dir/f"{output_stem}_剪辑.txt")); media.write_cut_plan_result(cues,plan,str(plan_out)); item["detail"]=f"完成\n输出视频：{out}\n剪辑方案：{plan_out}"; good+=1; self.after(0,lambda i=item:(i["progress"].configure(value=100),i["label"].set("完成")))
                     except Exception as exc:
                         item["detail"]=f"失败：{exc}"; self.after(0,lambda i=item:(i["progress"].configure(value=0),i["label"].set("失败（查看详情）")))
                 self.after(0,lambda: (button.configure(state="normal"),status.set(f"完成：{good}/{len(chosen)}")))
@@ -723,7 +741,7 @@ class App(tk.Tk):
             for path in paths:
                 path=Path(path)
                 if path.suffix.lower()!=".txt" or not path.is_file() or str(path.resolve()).casefold() in existing: continue
-                try: text=path.read_text(encoding="utf-8-sig").strip()
+                try: text=read_text(path).strip()
                 except (OSError,UnicodeError) as exc:
                     messagebox.showwarning("导入 TXT",f"无法读取 {path.name}：{exc}",parent=win); continue
                 if not text: continue
@@ -782,11 +800,11 @@ class App(tk.Tk):
         progress_text=tk.StringVar(value="就绪"); ttk.Label(footer,textvariable=progress_text,style="Muted.TLabel",width=14,anchor="e").grid(row=0,column=1,sticky="e",padx=(0,12))
         def begin():
             save_current(); chosen=[dict(item) for item in entries]; instruction=prompt.get("1.0","end").strip(); selected_provider=provider.get(); compatible=selected_provider=="OpenAI 兼容接口"; doubao=selected_provider=="豆包"
-            key=(self.llm_key.get() if compatible else (self.ark_key.get() if doubao else self.asr_key.get())).strip(); selected_model=OPENAI_COMPAT_MODEL if compatible else (DOUBAO_MODEL if doubao else model.get().strip()); base_url=OPENAI_COMPAT_URL if compatible else (DOUBAO_API_URL if doubao else None)
+            key=(self.llm_key.get() if compatible else (self.ark_key.get() if doubao else self.asr_key.get())).strip(); selected_model=self.llm_model.get().strip() if compatible else (DOUBAO_MODEL if doubao else model.get().strip()); base_url=self.llm_url.get().strip() if compatible else (DOUBAO_API_URL if doubao else None)
             if not chosen: messagebox.showinfo("AI 改写","请先从目录读取或导入 TXT 文案",parent=win); return
             if not instruction: messagebox.showinfo("AI 改写","请填写改写提示词",parent=win); return
             if not key: messagebox.showerror("AI 改写","请先在接口与工具配置中填写所选服务的 API Key",parent=win); return
-            output_names=[re.sub(r'[<>:"/\\|?*\x00-\x1f]',"_",item["title"]).strip(" .") for item in chosen]
+            output_names=[rename_service.safe_stem(item["title"]) for item in chosen]
             if any(not name for name in output_names):
                 messagebox.showinfo("AI 改写","标题不能为空",parent=win); return
             batch_time=datetime.now().strftime("%Y%m%d_%H%M%S_%f")
@@ -804,7 +822,9 @@ class App(tk.Tk):
             self.run(lambda:self.rewrite_batch(chosen,instruction,key,selected_model,base_url,reasoning_effort,output_dir,batch_time,result_tree,status,start_button,result_state,output_text,progress,progress_value,progress_text))
         start_button=ttk.Button(footer,text="开始生成",style="Primary.TButton",command=begin); start_button.grid(row=0,column=2,sticky="e")
         cut_dir=self.step_directory(STEP_CUT_DIR)
-        add_files(sorted(cut_dir.glob("*.txt"),key=lambda path:path.name.casefold()))
+        # Only the complete cut script is input for AI rewriting; the human-readable
+        # clipping plan is an output report and must not be treated as source copy.
+        add_files(sorted((path for path in cut_dir.glob("*_剪辑.txt") if not path.name.endswith("_剪辑方案.txt")),key=lambda path:path.name.casefold()))
     def manage_rewrite_prompts(self,parent,prompt,refresh_buttons):
         win=tk.Toplevel(parent); win.title("改写提示词管理"); win.geometry("760x520"); win.minsize(620,420)
         outer=ttk.Frame(win,padding=14); outer.pack(fill="both",expand=True); outer.columnconfigure(0,weight=1); outer.columnconfigure(1,weight=2); outer.rowconfigure(1,weight=1)
@@ -864,9 +884,8 @@ class App(tk.Tk):
                         self.task_store.update_item(result_state["task_id"],index,status=retry_status)
                         self.after(0,lambda state=retry_status:self._set_rewrite_row(result_tree,index,state))
                         time.sleep(min(2**attempt,8))
-                safe_title=re.sub(r'[<>:"/\\|?*\x00-\x1f]',"_",label).strip(" .")
-                if not safe_title: raise ValueError("标题不能作为文件名")
-                output=output_dir/f"{safe_title}_{batch_time}_{index+1:02d}.txt"; output.write_text(rewritten+"\n",encoding="utf-8-sig")
+                safe_title=rename_service.safe_stem(label)
+                output=output_dir/f"{safe_title}_{batch_time}_{index+1:02d}.txt"; write_text(output,rewritten+"\n")
                 elapsed=time.monotonic()-started; result_state["results"][index]={"title":label,"text":rewritten}
                 self.task_store.update_item(result_state["task_id"],index,status="完成",progress=100,output=str(output),error="",duration_seconds=elapsed)
                 self.after(0,lambda:self._set_rewrite_row(result_tree,index,"完成",str(output),elapsed))
@@ -917,12 +936,12 @@ class App(tk.Tk):
     def start_rewrite(self): self.run(self.rewrite)
     def rewrite(self):
         try:
-            seg=json.load(open(self.project/"transcript.json",encoding="utf-8")); result=ai.rewrite(seg,self.lang.get(),OPENAI_COMPAT_URL,self.llm_key.get(),OPENAI_COMPAT_MODEL,self.style.get(),self.length.get(),OPENAI_COMPAT_REASONING_EFFORT); json.dump(result,open(self.project/"rewrite.json","w",encoding="utf-8"),ensure_ascii=False,indent=2); self.log(json.dumps(result,ensure_ascii=False,indent=2)); self.status.set("改写完成")
+            seg=json.load(open(self.project/"transcript.json",encoding="utf-8")); result=ai.rewrite(seg,self.lang.get(),self.llm_url.get(),self.llm_key.get(),self.llm_model.get(),self.style.get(),self.length.get(),OPENAI_COMPAT_REASONING_EFFORT); json.dump(result,open(self.project/"rewrite.json","w",encoding="utf-8"),ensure_ascii=False,indent=2); self.log(json.dumps(result,ensure_ascii=False,indent=2)); self.status.set("改写完成")
         except Exception as e: self.status.set("失败"); self.log("改写失败："+str(e))
     def start_edit(self): self.run(self.edit)
     def edit(self):
         try:
-            video=str(next((p for p in self.project.glob("*.mp4") if p.name != "edited.mp4"), self.project/"source.mp4")); duration=media.probe_duration(self.ffmpeg.get(),video); scenes=media.fixed_scenes(duration); seg=json.load(open(self.project/"transcript.json",encoding="utf-8")); rewrite=json.load(open(self.project/"rewrite.json",encoding="utf-8")); raw=ai.edit_plan(seg,scenes,rewrite,OPENAI_COMPAT_URL,self.llm_key.get(),OPENAI_COMPAT_MODEL,OPENAI_COMPAT_REASONING_EFFORT); plan=ai.validate_plan(raw,scenes,rewrite,duration); json.dump(plan,open(self.project/"edit-plan.json","w",encoding="utf-8"),ensure_ascii=False,indent=2); out=str(self.project/"edited.mp4"); media.execute_plan(self.ffmpeg.get(),video,plan,out); self.log(json.dumps(plan,ensure_ascii=False,indent=2)); self.log("成片已导出："+out); self.status.set("剪辑完成")
+            video=str(next((p for p in self.project.glob("*.mp4") if p.name != "edited.mp4"), self.project/"source.mp4")); duration=media.probe_duration(self.ffmpeg.get(),video); scenes=media.fixed_scenes(duration); seg=json.load(open(self.project/"transcript.json",encoding="utf-8")); rewrite=json.load(open(self.project/"rewrite.json",encoding="utf-8")); raw=ai.edit_plan(seg,scenes,rewrite,self.llm_url.get(),self.llm_key.get(),self.llm_model.get(),OPENAI_COMPAT_REASONING_EFFORT); plan=ai.validate_plan(raw,scenes,rewrite,duration); json.dump(plan,open(self.project/"edit-plan.json","w",encoding="utf-8"),ensure_ascii=False,indent=2); out=str(self.project/"edited.mp4"); media.execute_plan(self.ffmpeg.get(),video,plan,out); self.log(json.dumps(plan,ensure_ascii=False,indent=2)); self.log("成片已导出："+out); self.status.set("剪辑完成")
         except Exception as e: self.status.set("失败"); self.log("剪辑失败："+str(e))
 
 if __name__ == "__main__": App().mainloop()
