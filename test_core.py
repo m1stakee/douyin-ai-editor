@@ -83,6 +83,12 @@ class TestCore(unittest.TestCase):
         self.assertIn('def open_library_path(var,is_output=False):',source)
         self.assertIn('text="打开",command=lambda v=var,output=row==3:open_library_path(v,output)',source)
 
+    def test_voice_directory_recognizes_all_txt_scripts(self):
+        source=Path(__file__).with_name("main.py").read_text(encoding="utf-8")
+        voice_section=source[source.index("def open_voicevox_window"):source.index("def open_rename_window")]
+        self.assertIn('Path(selected).glob("*.txt")',voice_section)
+        self.assertNotIn('Path(selected).glob("*答案1.txt")',voice_section)
+
     def test_text_io_reads_legacy_gb18030_and_writes_utf8_without_bom(self):
         from tempfile import TemporaryDirectory
         with TemporaryDirectory() as folder:

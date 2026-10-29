@@ -245,7 +245,7 @@ class App(tk.Tk):
             selected=filedialog.askdirectory(parent=win,title="选择第四步文案目录",initialdir=str(initial))
             if not selected: return
             existing={str(row["path"]).casefold() for row in file_rows}; added=0
-            for path in sorted(Path(selected).glob("*答案1.txt"),key=lambda item:item.name.casefold()):
+            for path in sorted(Path(selected).glob("*.txt"),key=lambda item:item.name.casefold()):
                 path=path.resolve()
                 if str(path).casefold() in existing: continue
                 add_script_row(path); existing.add(str(path).casefold()); added+=1
