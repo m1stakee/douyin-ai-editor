@@ -25,6 +25,13 @@ class TestCore(unittest.TestCase):
             write_text(source,"1\n00:00:00,000 --> 00:00:01,000\n第一句\n\n2\n00:00:01,000 --> 00:00:02,000\n第二句\n")
             self.assertEqual(read_rewrite_source(source),"第一句\n第二句")
 
+    def test_step_four_automatically_loads_cut_srt_only(self):
+        source=Path(__file__).with_name("main.py").read_text(encoding="utf-8")
+        self.assertIn('cut_dir.glob("*_剪辑.srt")',source)
+        self.assertNotIn('cut_dir.glob("*_剪辑.txt")',source)
+        self.assertIn('统一使用主配置模型',source)
+        self.assertNotIn('provider_picker=ttk.Combobox',source)
+
     def test_text_io_reads_legacy_gb18030_and_writes_utf8_without_bom(self):
         from tempfile import TemporaryDirectory
         with TemporaryDirectory() as folder:

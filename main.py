@@ -710,8 +710,8 @@ class App(tk.Tk):
         refresh_prompt_buttons()
         if self.rewrite_prompts: use_prompt(self.rewrite_prompts[0])
         source_bar=ttk.Frame(outer); source_bar.grid(row=3,column=0,sticky="ew",pady=(0,8)); source_bar.columnconfigure(3,weight=1)
-        ttk.Button(source_bar,text="读取目录 TXT/SRT",command=lambda:load_directory()).grid(row=0,column=0,sticky="w")
-        ttk.Button(source_bar,text="导入 TXT/SRT（可多选）",command=lambda:import_files()).grid(row=0,column=1,sticky="w",padx=(7,0))
+        ttk.Button(source_bar,text="读取目录 SRT",command=lambda:load_directory()).grid(row=0,column=0,sticky="w")
+        ttk.Button(source_bar,text="导入 SRT（可多选）",command=lambda:import_files()).grid(row=0,column=1,sticky="w",padx=(7,0))
         clear_all_button=ttk.Button(source_bar,text="一键清空",command=lambda:clear_all()); clear_all_button.grid(row=0,column=2,sticky="w",padx=(7,0))
         count=tk.StringVar(value="尚未载入文案"); ttk.Label(source_bar,textvariable=count,style="Muted.TLabel").grid(row=0,column=3,sticky="e")
         title_row=ttk.Frame(outer); title_row.grid(row=4,column=0,sticky="ew",pady=(0,7)); ttk.Label(title_row,text="标题",style="Section.TLabel").pack(side="left")
@@ -741,7 +741,7 @@ class App(tk.Tk):
             added=[]
             for path in paths:
                 path=Path(path)
-                if path.suffix.lower() not in {".txt",".srt"} or not path.is_file() or str(path.resolve()).casefold() in existing: continue
+                if path.suffix.lower() != ".srt" or not path.is_file() or str(path.resolve()).casefold() in existing: continue
                 try: text=read_rewrite_source(path)
                 except (OSError,UnicodeError) as exc:
                     messagebox.showwarning("导入文案",f"无法读取 {path.name}：{exc}",parent=win); continue
@@ -750,29 +750,21 @@ class App(tk.Tk):
                 if not text: continue
                 entries.append({"path":path,"title":path.stem,"text":text}); existing.add(str(path.resolve()).casefold()); added.append(len(entries)-1)
             if added: show_entry(added[0])
-            elif not entries: count.set("没有可用的 TXT/SRT 文案")
+            elif not entries: count.set("没有可用的 SRT 字幕")
             if entries: previous_button.configure(state="normal"); next_button.configure(state="normal")
         def clear_all():
             save_current(); entries.clear(); current[0]=0; loading[0]=True
             title.set(""); content.delete("1.0","end"); loading[0]=False
-            count.set("已清空，请重新导入 TXT/SRT"); previous_button.configure(state="disabled"); next_button.configure(state="disabled")
+            count.set("已清空，请重新导入 SRT"); previous_button.configure(state="disabled"); next_button.configure(state="disabled")
         def load_directory():
-            directory=filedialog.askdirectory(title="选择包含 TXT/SRT 文案的目录",initialdir=str(self.project),parent=win)
-            if directory: add_files(sorted((path for path in Path(directory).iterdir() if path.suffix.lower() in {".txt",".srt"}),key=lambda path:path.name.casefold()))
+            directory=filedialog.askdirectory(title="选择包含 SRT 字幕的目录",initialdir=str(self.project),parent=win)
+            if directory: add_files(sorted(Path(directory).glob("*.srt"),key=lambda path:path.name.casefold()))
         def import_files():
-            paths=filedialog.askopenfilenames(title="导入 TXT/SRT 文案",initialdir=str(self.project),filetypes=[("TXT/SRT 文案","*.txt *.srt"),("TXT 文案","*.txt"),("SRT 字幕","*.srt")],parent=win)
+            paths=filedialog.askopenfilenames(title="导入 SRT 字幕",initialdir=str(self.project),filetypes=[("SRT 字幕","*.srt")],parent=win)
             if paths: add_files(paths)
         title_entry.bind("<FocusOut>",lambda _event:save_current()); content.bind("<FocusOut>",lambda _event:save_current())
-        options=ttk.Frame(outer); options.grid(row=7,column=0,sticky="ew",pady=(10,0)); provider=tk.StringVar(value="阿里云百炼"); model=tk.StringVar(value="qwen3.7-plus")
-        ttk.Label(options,text="AI 服务",style="Panel.TLabel").pack(side="left"); provider_picker=ttk.Combobox(options,textvariable=provider,state="readonly",values=["阿里云百炼","豆包","OpenAI 兼容接口"],width=18); provider_picker.pack(side="left",padx=(7,12))
-        model_label=tk.StringVar(value="模型"); ttk.Label(options,textvariable=model_label,style="Panel.TLabel").pack(side="left"); model_picker=ttk.Combobox(options,textvariable=model,state="readonly",values=["qwen3.7-plus","qwen-plus","qwen-turbo","qwen-max","qwen-long"],width=22); model_picker.pack(side="left",padx=7)
-        def change_provider(_event=None):
-            compatible=provider.get()=="OpenAI 兼容接口"
-            doubao=provider.get()=="豆包"
-            model.set(OPENAI_COMPAT_MODEL if compatible else (DOUBAO_MODEL if doubao else "qwen3.7-plus")); model_label.set("兼容模型" if compatible else ("豆包模型" if doubao else "百炼模型"))
-            model_picker.configure(values=[OPENAI_COMPAT_MODEL] if compatible else ([DOUBAO_MODEL] if doubao else ["qwen3.7-plus","qwen-plus","qwen-turbo","qwen-max","qwen-long"]))
-        provider_picker.bind("<<ComboboxSelected>>",change_provider)
-        status=tk.StringVar(value="就绪"); ttk.Label(options,textvariable=status,style="Muted.TLabel").pack(side="right")
+        options=ttk.Frame(outer); options.grid(row=7,column=0,sticky="ew",pady=(10,0)); status=tk.StringVar(value=f"统一使用主配置模型：{self.llm_model.get()}")
+        ttk.Label(options,textvariable=status,style="Muted.TLabel").pack(side="left")
         result_box=ttk.Frame(outer); result_box.grid(row=8,column=0,sticky="nsew",pady=(9,0)); result_box.columnconfigure(0,weight=1); result_box.rowconfigure(0,weight=1)
         result_tree=ttk.Treeview(result_box,columns=("status","duration","output"),show="tree headings",height=4); result_tree.heading("#0",text="标题"); result_tree.heading("status",text="状态"); result_tree.heading("duration",text="改写时间"); result_tree.heading("output",text="输出文件"); result_tree.column("#0",width=220); result_tree.column("status",width=90,anchor="center"); result_tree.column("duration",width=100,anchor="center"); result_tree.column("output",width=330); result_tree.grid(row=0,column=0,sticky="nsew")
         result_scroll=ttk.Scrollbar(result_box,orient="vertical",command=result_tree.yview); result_scroll.grid(row=0,column=1,sticky="ns"); result_tree.configure(yscrollcommand=result_scroll.set)
@@ -802,9 +794,9 @@ class App(tk.Tk):
         progress_value=tk.DoubleVar(value=0); progress=ttk.Progressbar(footer,variable=progress_value,maximum=1,mode="determinate"); progress.grid(row=0,column=0,sticky="ew",padx=(0,12))
         progress_text=tk.StringVar(value="就绪"); ttk.Label(footer,textvariable=progress_text,style="Muted.TLabel",width=14,anchor="e").grid(row=0,column=1,sticky="e",padx=(0,12))
         def begin():
-            save_current(); chosen=[dict(item) for item in entries]; instruction=prompt.get("1.0","end").strip(); selected_provider=provider.get(); compatible=selected_provider=="OpenAI 兼容接口"; doubao=selected_provider=="豆包"
-            key=(self.llm_key.get() if compatible else (self.ark_key.get() if doubao else self.asr_key.get())).strip(); selected_model=self.llm_model.get().strip() if compatible else (DOUBAO_MODEL if doubao else model.get().strip()); base_url=self.llm_url.get().strip() if compatible else (DOUBAO_API_URL if doubao else None)
-            if not chosen: messagebox.showinfo("AI 改写","请先从目录读取或导入 TXT/SRT 文案",parent=win); return
+            save_current(); chosen=[dict(item) for item in entries]; instruction=prompt.get("1.0","end").strip(); selected_provider="New API"; compatible=True
+            key=self.llm_key.get().strip(); selected_model=self.llm_model.get().strip(); base_url=self.llm_url.get().strip()
+            if not chosen: messagebox.showinfo("AI 改写","请先从目录读取或导入 SRT 字幕",parent=win); return
             if not instruction: messagebox.showinfo("AI 改写","请填写改写提示词",parent=win); return
             if not key: messagebox.showerror("AI 改写","请先在接口与工具配置中填写所选服务的 API Key",parent=win); return
             output_names=[rename_service.safe_stem(item["title"]) for item in chosen]
@@ -821,13 +813,13 @@ class App(tk.Tk):
             result_state.update(task_id=task["id"],completed=0,success=0,total=len(chosen),progress_lock=threading.Lock(),results={})
             progress.configure(maximum=len(chosen)); progress_value.set(0); progress_text.set(f"0 / {len(chosen)}")
             start_button.configure(state="disabled"); status.set(f"处理中 0/{len(chosen)}")
-            reasoning_effort=OPENAI_COMPAT_REASONING_EFFORT if compatible else None
+            reasoning_effort=OPENAI_COMPAT_REASONING_EFFORT
             self.run(lambda:self.rewrite_batch(chosen,instruction,key,selected_model,base_url,reasoning_effort,output_dir,batch_time,result_tree,status,start_button,result_state,output_text,progress,progress_value,progress_text))
         start_button=ttk.Button(footer,text="开始生成",style="Primary.TButton",command=begin); start_button.grid(row=0,column=2,sticky="e")
         cut_dir=self.step_directory(STEP_CUT_DIR)
-        # Only the complete cut script is input for AI rewriting; the human-readable
-        # clipping plan is an output report and must not be treated as source copy.
-        add_files(sorted((path for path in cut_dir.glob("*_剪辑.txt") if not path.name.endswith("_剪辑方案.txt")),key=lambda path:path.name.casefold()))
+        # Step 4 follows the retimed subtitle produced by step 3. The subtitle
+        # parser removes cue numbers and timestamps before sending copy to AI.
+        add_files(sorted(cut_dir.glob("*_剪辑.srt"),key=lambda path:path.name.casefold()))
     def manage_rewrite_prompts(self,parent,prompt,refresh_buttons):
         win=tk.Toplevel(parent); win.title("改写提示词管理"); win.geometry("760x520"); win.minsize(620,420)
         outer=ttk.Frame(win,padding=14); outer.pack(fill="both",expand=True); outer.columnconfigure(0,weight=1); outer.columnconfigure(1,weight=2); outer.rowconfigure(1,weight=1)
