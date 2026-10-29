@@ -699,35 +699,53 @@ class App(tk.Tk):
                 self.after(0,lambda: (button.configure(state="normal"),status.set(f"完成：{good}/{len(chosen)}")))
             self.run(work)
     def start_cutting_answers(self):
-        """Generate the subtitle deletion answer file; external tools perform the actual cut."""
-        video=filedialog.askopenfilename(parent=self,title="选择原视频",filetypes=[("视频","*.mp4;*.mov;*.mkv;*.webm;*.m4v"),("所有文件","*.*")])
-        if not video: return
-        srt=filedialog.askopenfilename(parent=self,title="选择原视频 SRT",filetypes=[("SRT 字幕","*.srt"),("所有文件","*.*")])
-        if not srt: return
-        initial=self.answer_directory.get().strip() or str(Path(video).parent)
-        directory=filedialog.askdirectory(parent=self,title="选择答案输出目录",initialdir=initial)
-        if not directory: return
-        output_dir=Path(directory).expanduser()
-        if not output_dir.is_dir(): messagebox.showerror("生成答案","选择的目录不存在，软件不会自动创建目录",parent=self); return
-        self.answer_directory.set(str(output_dir)); self.save_all_settings(False)
-        video_path=Path(video); srt_path=Path(srt); answer_path=output_dir/f"{video_path.stem}答案1.txt"
-        if not self.llm_key.get().strip(): messagebox.showerror("生成答案","请先在接口与工具配置中填写 ChatGPT 接口 Key",parent=self); return
-        if answer_path.exists() and not messagebox.askyesno("覆盖文件",f"文件已存在：{answer_path.name}\n是否覆盖？",parent=self): return
-        self.status.set("正在生成答案…")
-        def work():
-            try:
-                cues=voicevox_service.parse_srt(read_text(srt_path)); duration=media.probe_duration(asr.resolve_ffmpeg(),str(video_path))
-                ranges=ai.srt_deletion_plan(cues,duration,self.llm_url.get(),self.llm_key.get(),self.llm_model.get(),OPENAI_COMPAT_REASONING_EFFORT)
-                try: plan=media.build_srt_cut_plan(cues,duration,ranges)
-                except ValueError as first_error:
-                    ranges=ai.srt_deletion_plan(cues,duration,self.llm_url.get(),self.llm_key.get(),self.llm_model.get(),OPENAI_COMPAT_REASONING_EFFORT,str(first_error)); plan=media.build_srt_cut_plan(cues,duration,ranges)
-                media.write_cut_plan_result(cues,plan,str(answer_path))
-                for source in (video_path,srt_path):
-                    target=output_dir/source.name
-                    if source.resolve()!=target.resolve(): shutil.copy2(source,target)
-                self.after(0,lambda:self.status.set(f"答案已生成：{answer_path.name}"))
-            except Exception as exc: self.after(0,lambda e=exc: (self.status.set("生成答案失败"),messagebox.showerror("生成答案失败",str(e),parent=self)))
-        self.run(work)
+        """Open the batch pairing UI and generate answer files without cutting video."""
+        win=tk.Toplevel(self); win.title("3  生成答案"); win.geometry("920x600"); win.minsize(760,480)
+        outer=ttk.Frame(win,padding=14); outer.pack(fill="both",expand=True); outer.columnconfigure(0,weight=1); outer.rowconfigure(2,weight=1)
+        ttk.Label(outer,text="批量导入视频和同名 SRT",style="Section.TLabel").grid(row=0,column=0,sticky="w")
+        ttk.Label(outer,text="例如：视频 001.mp4 必须对应字幕 001.srt；本步骤只生成答案，不执行剪辑或去闪。",style="Muted.TLabel").grid(row=1,column=0,sticky="w",pady=(3,9))
+        videos={}; srts={}; status=tk.StringVar(value="请导入视频和 SRT")
+        tree=ttk.Treeview(outer,columns=("video","srt","state"),show="headings"); tree.heading("video",text="视频"); tree.heading("srt",text="同名 SRT"); tree.heading("state",text="状态"); tree.column("video",width=310); tree.column("srt",width=310); tree.column("state",width=130,anchor="center"); tree.grid(row=2,column=0,sticky="nsew")
+        def refresh():
+            for item in tree.get_children(): tree.delete(item)
+            for stem in sorted(set(videos)|set(srts)):
+                state="已配对" if stem in videos and stem in srts else ("缺少 SRT" if stem in videos else "缺少视频")
+                tree.insert("","end",iid=stem,values=(videos.get(stem,Path("")).name,srts.get(stem,Path("")).name,state))
+            matched=len(set(videos)&set(srts)); status.set(f"视频 {len(videos)} 个，SRT {len(srts)} 个，已配对 {matched} 组")
+        def import_videos():
+            for value in filedialog.askopenfilenames(parent=win,title="导入视频（可多选）",filetypes=[("视频","*.mp4;*.mov;*.mkv;*.webm;*.m4v"),("所有文件","*.*")]):
+                path=Path(value).resolve(); videos[path.stem.casefold()]=path
+            refresh()
+        def import_srts():
+            for value in filedialog.askopenfilenames(parent=win,title="导入 SRT（可多选）",filetypes=[("SRT 字幕","*.srt"),("所有文件","*.*")]):
+                path=Path(value).resolve(); srts[path.stem.casefold()]=path
+            refresh()
+        controls=ttk.Frame(outer); controls.grid(row=3,column=0,sticky="ew",pady=(9,0)); ttk.Button(controls,text="导入视频",command=import_videos).pack(side="left"); ttk.Button(controls,text="导入 SRT",command=import_srts).pack(side="left",padx=7); ttk.Button(controls,text="清空",command=lambda:(videos.clear(),srts.clear(),refresh())).pack(side="left"); ttk.Label(controls,textvariable=status,style="Muted.TLabel").pack(side="right")
+        output_row=ttk.Frame(outer); output_row.grid(row=4,column=0,sticky="ew",pady=(10,0)); output_row.columnconfigure(1,weight=1); output_var=tk.StringVar(value=self.answer_directory.get()); ttk.Label(output_row,text="保存目录").grid(row=0,column=0,padx=(0,8)); ttk.Entry(output_row,textvariable=output_var).grid(row=0,column=1,sticky="ew"); ttk.Button(output_row,text="选择",command=lambda:output_var.set(filedialog.askdirectory(parent=win,initialdir=output_var.get() or str(self.project or Path.cwd())) or output_var.get())).grid(row=0,column=2,padx=(7,0))
+        def begin():
+            missing=[stem for stem in set(videos)|set(srts) if stem not in videos or stem not in srts]
+            if not videos or missing: messagebox.showerror("生成答案","存在未配对文件，请保证每个视频都有完全同名的 SRT",parent=win); return
+            output_dir=Path(output_var.get()).expanduser()
+            if not output_dir.is_dir(): messagebox.showerror("生成答案","选择的目录不存在，软件不会自动创建目录",parent=win); return
+            if not self.llm_key.get().strip(): messagebox.showerror("生成答案","请先在主界面配置 ChatGPT 接口 Key",parent=win); return
+            pairs=[(videos[stem],srts[stem]) for stem in sorted(videos)]; self.answer_directory.set(str(output_dir)); self.save_all_settings(False); start_button.configure(state="disabled"); status.set("正在生成答案…")
+            def work():
+                good=0
+                for video_path,srt_path in pairs:
+                    try:
+                        self.after(0,lambda key=video_path.stem.casefold():tree.set(key,"state","模型处理中")); cues=voicevox_service.parse_srt(read_text(srt_path)); duration=media.probe_duration(asr.resolve_ffmpeg(),str(video_path)); ranges=ai.srt_deletion_plan(cues,duration,self.llm_url.get(),self.llm_key.get(),self.llm_model.get(),OPENAI_COMPAT_REASONING_EFFORT)
+                        try: plan=media.build_srt_cut_plan(cues,duration,ranges)
+                        except ValueError as first_error:
+                            ranges=ai.srt_deletion_plan(cues,duration,self.llm_url.get(),self.llm_key.get(),self.llm_model.get(),OPENAI_COMPAT_REASONING_EFFORT,str(first_error)); plan=media.build_srt_cut_plan(cues,duration,ranges)
+                        media.write_cut_plan_result(cues,plan,str(output_dir/f"{video_path.stem}答案1.txt"))
+                        for source in (video_path,srt_path):
+                            target=output_dir/source.name
+                            if source.resolve()!=target.resolve(): shutil.copy2(source,target)
+                        good+=1; self.after(0,lambda key=video_path.stem.casefold():tree.set(key,"state","完成"))
+                    except Exception as exc: self.after(0,lambda key=video_path.stem.casefold(),e=exc:(tree.set(key,"state","失败"),messagebox.showerror("生成答案失败",f"{video_path.name}\n{e}",parent=win)))
+                self.after(0,lambda:(status.set(f"完成：{good}/{len(pairs)}"),start_button.configure(state="normal"),self.status.set(f"答案生成完成：{good}/{len(pairs)}")))
+            self.run(work)
+        start_button=ttk.Button(outer,text="开始生成答案",style="Primary.TButton",command=begin); start_button.grid(row=5,column=0,sticky="e",pady=(12,0))
     def open_library_window(self):
         win=tk.Toplevel(self); win.title("资源库"); win.geometry("760x390"); win.columnconfigure(1,weight=1)
         desktop=Path.home()/"Desktop"/"工作目录"; defaults=[("去闪视频目录",self.anti_flash_directory.get() or str(desktop/"2_去闪光")),("日文文案目录",str(self.project/STEP_REWRITE_DIR if self.project else "")),("日文语音目录",str(self.project/STEP_VOICE_DIR if self.project else "")),("资源库目录",self.library_directory.get() or str(desktop/"6_资源库"))]
