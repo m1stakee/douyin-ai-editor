@@ -737,7 +737,7 @@ class App(tk.Tk):
                         try: plan=media.build_srt_cut_plan(cues,duration,ranges)
                         except ValueError as first_error:
                             ranges=ai.srt_deletion_plan(cues,duration,self.llm_url.get(),self.llm_key.get(),self.llm_model.get(),OPENAI_COMPAT_REASONING_EFFORT,str(first_error),raw_srt); plan=media.build_srt_cut_plan(cues,duration,ranges)
-                        media.write_cut_plan_result(cues,plan,str(output_dir/f"{video_path.stem}答案1.txt"))
+                        media.write_cut_plan_result(cues,plan,str(output_dir/f"{video_path.stem}的答案1.txt"))
                         for source in (video_path,srt_path):
                             target=output_dir/source.name
                             if source.resolve()!=target.resolve(): shutil.copy2(source,target)
@@ -825,7 +825,7 @@ class App(tk.Tk):
                 except ValueError as exc:
                     messagebox.showwarning("导入文案",f"无法解析 {path.name}：{exc}",parent=win); continue
                 if not text: continue
-                entry_title=re.sub(r"答案1$","",path.stem).strip() or path.stem
+                entry_title=re.sub(r"的?答案1$","",path.stem).strip() or path.stem
                 entries.append({"path":path,"title":entry_title,"text":text}); existing.add(str(path.resolve()).casefold()); added.append(len(entries)-1)
             if added: show_entry(added[0])
             elif not entries: count.set("没有可用的答案 TXT")

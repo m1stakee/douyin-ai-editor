@@ -64,6 +64,8 @@ class TestCore(unittest.TestCase):
         source=Path(__file__).with_name("main.py").read_text(encoding="utf-8")
         self.assertIn('answer_dir.glob("*答案1.txt")',source)
         self.assertIn('path.name.endswith("答案1.txt")',source)
+        self.assertIn('f"{video_path.stem}的答案1.txt"',source)
+        self.assertIn('r"的?答案1$"',source)
         self.assertNotIn('cut_dir.glob("*_剪辑.srt")',source)
         self.assertIn('统一使用主配置模型',source)
         self.assertNotIn('provider_picker=ttk.Combobox',source)
