@@ -87,7 +87,7 @@ def edit_plan(segments, scenes, rewrite_result, base_url, key, model, reasoning_
     return chat(base_url,key,model,system,user,reasoning_effort)
 
 def srt_deletion_plan(cues, duration, base_url, key, model, reasoning_effort=None, correction="", srt_text=None):
-    system=("我会发给你一段解说视频的 .srt 字幕文件。任务：只通过整段删除字幕行进行剪辑，不改任何字句，把成片时长控制在原视频60%~80%的区间内。剪辑规则（从高到低优先级）：\n"
+    prompt=("我会发给你一段解说视频的 .srt 字幕文件。任务：只通过整段删除字幕行进行剪辑，不改任何字句，把成片时长控制在原视频60%~80%的区间内。剪辑规则（从高到低优先级）：\n"
             "1.时长是最高优先级：结合srt文件中给出的时间轴，剪辑后成品保留60%~80%之间的时间即可，不需要尽量接近某个具体时长\n"
             "2.剪辑方式：只能整段删字幕；每次删除要删掉至少连续 3 条字幕行；整个视频里要有至少 3 处这样的删除。\n"
             "3.内容取舍原则（帮助你更快判断）：优先保留：开头吸引人的引子、核心观点/结论、关键案例或反转、结尾总结；优先删除：重复解释、赘述、口头禅、无信息填充。\n"
@@ -102,9 +102,9 @@ def srt_deletion_plan(cues, duration, base_url, key, model, reasoning_effort=Non
         srt_text="\n\n".join(
             f"{i}\n{x.start:.3f} --> {x.end:.3f}\n{x.text}" for i,x in enumerate(cues,1)
         )
-    user=f"视频总时长：{duration:.3f} 秒\n\n以下是原始 SRT 全文：\n\n{srt_text}"
+    user=f"{prompt}\n\n视频总时长：{duration:.3f} 秒\n\n以下是原始 SRT 全文：\n\n{srt_text}"
     if correction: user+=f"\n\n上一次方案校验失败，请修正：{correction}"
-    result=chat(base_url,key,model,system,user,reasoning_effort)
+    result=chat(base_url,key,model,"严格按照用户消息中的剪辑规则处理，并只返回要求的 JSON 对象。",user,reasoning_effort)
     ranges=result.get("delete_ranges")
     if not isinstance(ranges,list): raise ValueError("模型没有返回 delete_ranges")
     return ranges

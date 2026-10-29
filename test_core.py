@@ -49,7 +49,9 @@ class TestCore(unittest.TestCase):
         original="1\n00:00:00,000 --> 00:00:01,250\n原始第一句\n\n2\n00:00:01,250 --> 00:00:02,000\n原始第二句\n"
         cues=[SrtCue(1,0.0,1.25,"原始第一句"),SrtCue(2,1.25,2.0,"原始第二句")]
         self.assertEqual(srt_deletion_plan(cues,2.0,"https://example.com/v1","key","model",srt_text=original),[{"start":1,"end":3}])
-        self.assertIn(original,mocked_chat.call_args.args[4])
+        sent=mocked_chat.call_args.args[4]
+        self.assertIn("只通过整段删除字幕行进行剪辑",sent)
+        self.assertIn(original,sent)
 
     def test_rewrite_source_extracts_text_from_srt(self):
         from tempfile import TemporaryDirectory
