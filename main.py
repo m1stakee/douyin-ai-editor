@@ -720,7 +720,15 @@ class App(tk.Tk):
             for value in filedialog.askopenfilenames(parent=win,title="导入 SRT（可多选）",filetypes=[("SRT 字幕","*.srt"),("所有文件","*.*")]):
                 path=Path(value).resolve(); srts[path.stem.casefold()]=path
             refresh()
-        controls=ttk.Frame(outer); controls.grid(row=3,column=0,sticky="ew",pady=(9,0)); ttk.Button(controls,text="导入视频",command=import_videos).pack(side="left"); ttk.Button(controls,text="导入 SRT",command=import_srts).pack(side="left",padx=7); ttk.Button(controls,text="清空",command=lambda:(videos.clear(),srts.clear(),refresh())).pack(side="left"); ttk.Label(controls,textvariable=status,style="Muted.TLabel").pack(side="right")
+        def recognize_directory():
+            initial=self.answer_directory.get() or str(self.project or Path.cwd())
+            selected=filedialog.askdirectory(parent=win,title="选择包含视频和同名 SRT 的目录",initialdir=initial)
+            if not selected: return
+            videos.clear(); srts.clear(); directory=Path(selected)
+            for path in rename_service.list_videos(directory): videos[path.stem.casefold()]=path.resolve()
+            for path in directory.glob("*.srt"): srts[path.stem.casefold()]=path.resolve()
+            refresh()
+        controls=ttk.Frame(outer); controls.grid(row=3,column=0,sticky="ew",pady=(9,0)); ttk.Button(controls,text="识别目录",style="Primary.TButton",command=recognize_directory).pack(side="left"); ttk.Button(controls,text="导入视频",command=import_videos).pack(side="left",padx=(7,0)); ttk.Button(controls,text="导入 SRT",command=import_srts).pack(side="left",padx=7); ttk.Button(controls,text="清空",command=lambda:(videos.clear(),srts.clear(),refresh())).pack(side="left"); ttk.Label(controls,textvariable=status,style="Muted.TLabel").pack(side="right")
         output_row=ttk.Frame(outer); output_row.grid(row=4,column=0,sticky="ew",pady=(10,0)); output_row.columnconfigure(1,weight=1); output_var=tk.StringVar(value=self.answer_directory.get()); ttk.Label(output_row,text="保存目录").grid(row=0,column=0,padx=(0,8)); ttk.Entry(output_row,textvariable=output_var).grid(row=0,column=1,sticky="ew"); ttk.Button(output_row,text="选择",command=lambda:output_var.set(filedialog.askdirectory(parent=win,initialdir=output_var.get() or str(self.project or Path.cwd())) or output_var.get())).grid(row=0,column=2,padx=(7,0))
         def begin():
             missing=[stem for stem in set(videos)|set(srts) if stem not in videos or stem not in srts]
@@ -746,6 +754,7 @@ class App(tk.Tk):
                 self.after(0,lambda:(status.set(f"完成：{good}/{len(pairs)}"),start_button.configure(state="normal"),self.status.set(f"答案生成完成：{good}/{len(pairs)}")))
             self.run(work)
         start_button=ttk.Button(outer,text="开始生成答案",style="Primary.TButton",command=begin); start_button.grid(row=5,column=0,sticky="e",pady=(12,0))
+        win.after_idle(recognize_directory)
     def open_library_window(self):
         win=tk.Toplevel(self); win.title("资源库"); win.geometry("760x390"); win.columnconfigure(1,weight=1)
         desktop=Path.home()/"Desktop"/"工作目录"; defaults=[("去闪视频目录",self.anti_flash_directory.get() or str(desktop/"2_去闪光")),("日文文案目录",str(self.project/STEP_REWRITE_DIR if self.project else "")),("日文语音目录",str(self.project/STEP_VOICE_DIR if self.project else "")),("资源库目录",self.library_directory.get() or str(desktop/"6_资源库"))]
@@ -1007,12 +1016,9 @@ class App(tk.Tk):
         if widget.winfo_exists(): widget.configure(state="normal"); widget.delete("1.0","end"); widget.insert("1.0",f"{title}\n\n{text}"); widget.configure(state="disabled")
     def start_transcribe(self):
         if not self.project: self.log("转写失败：请先选择输出目录"); return
-        default_dir=self.project/STEP_DOWNLOAD_DIR
-        selected=filedialog.askdirectory(parent=self,title="选择需要生成文案和 SRT 的视频目录",initialdir=str(default_dir if default_dir.is_dir() else self.project))
-        if not selected: return
-        source_dir=Path(selected)
-        videos=rename_service.list_videos(source_dir)
-        if not videos: messagebox.showinfo("生成文案与 SRT","选择的目录中没有可识别的视频",parent=self); return
+        download_dir=self.step_directory(STEP_DOWNLOAD_DIR)
+        videos=rename_service.list_videos(download_dir)
+        if not videos: messagebox.showinfo("生成文案与 SRT","第一步下载目录中没有可识别的视频",parent=self); return
         transcribe_dir=self.step_directory(STEP_TRANSCRIBE_DIR)
         self.transcribe_counter+=1; batch_id=self.transcribe_counter; self.latest_transcribe_id=batch_id; controls=[downloader_service.DownloadControl() for _ in videos]; context={"project":transcribe_dir,"videos":videos,"output_directory":transcribe_dir,"controls":controls,"source_lang":self.source_lang.get(),"ffmpeg":self.ffmpeg.get(),"api_key":self.asr_key.get()}; self.transcribe_controls[batch_id]=controls; self.transcribe_contexts[batch_id]=context
         saved_task=self.task_store.create("transcribe",f"文案与 SRT 批次 {batch_id}",str(transcribe_dir),[{"path":str(video),"name":video.name} for video in videos]); self.transcribe_task_ids[batch_id]=saved_task["id"]; self.task_store.update_task(saved_task["id"],status="运行中")

@@ -70,10 +70,11 @@ class TestCore(unittest.TestCase):
         self.assertIn('统一使用主配置模型',source)
         self.assertNotIn('provider_picker=ttk.Combobox',source)
 
-    def test_step_two_selects_and_scans_video_directory(self):
+    def test_step_three_selects_and_scans_video_srt_directory(self):
         source=Path(__file__).with_name("main.py").read_text(encoding="utf-8")
-        self.assertIn('title="选择需要生成文案和 SRT 的视频目录"',source)
-        self.assertIn('videos=rename_service.list_videos(source_dir)',source)
+        self.assertIn('title="选择包含视频和同名 SRT 的目录"',source)
+        self.assertIn('win.after_idle(recognize_directory)',source)
+        self.assertIn('for path in directory.glob("*.srt")',source)
 
     def test_text_io_reads_legacy_gb18030_and_writes_utf8_without_bom(self):
         from tempfile import TemporaryDirectory
