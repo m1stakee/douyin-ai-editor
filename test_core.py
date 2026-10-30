@@ -17,7 +17,33 @@ from task_store import TaskStore
 from license_client import verify_license, verify_saved_license
 from text_io import read_text, write_text
 from rewrite_source import read_rewrite_source
+from rewrite_batch_service import immediate_retry, rewrite_output_path, rewrite_worker_count, select_failed_items
 class TestCore(unittest.TestCase):
+    def test_rewrite_batch_uses_at_most_five_workers(self):
+        self.assertEqual(rewrite_worker_count(2), 2)
+        self.assertEqual(rewrite_worker_count(12), 5)
+
+    def test_rewrite_failure_retries_immediately_up_to_three_attempts(self):
+        calls=[]
+        def operation():
+            calls.append(len(calls)+1)
+            raise RuntimeError("temporary")
+        with self.assertRaisesRegex(RuntimeError,"temporary"):
+            immediate_retry(operation,max_attempts=3)
+        self.assertEqual(calls,[1,2,3])
+
+    def test_manual_batch_retry_selects_only_failed_items(self):
+        items=[{"title":"a"},{"title":"b"},{"title":"c"}]
+        self.assertEqual(select_failed_items(items,{2,0}),[(0,items[0]),(2,items[2])])
+
+    def test_rewrite_output_path_is_stable_across_manual_retries(self):
+        from tempfile import TemporaryDirectory
+        with TemporaryDirectory() as folder:
+            first=rewrite_output_path(Path(folder),"示例标题","20261030_120000",1)
+            retried=rewrite_output_path(Path(folder),"示例标题","20261030_120000",1)
+            self.assertEqual(first,retried)
+            self.assertEqual(first.name,"示例标题_20261030_120000_02.txt")
+
     def test_rewrite_source_extracts_text_from_srt(self):
         from tempfile import TemporaryDirectory
         with TemporaryDirectory() as folder:

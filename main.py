@@ -7,6 +7,7 @@ from tkinter import ttk, filedialog, messagebox
 import downloader_service, media, asr, ai, rename_service, voicevox_service
 from text_io import read_text, write_text
 from rewrite_source import read_rewrite_source
+from rewrite_batch_service import immediate_retry, rewrite_output_path, rewrite_worker_count, select_failed_items
 from batch_service import run_batch, transcribe_worker_count
 from app_config import ark_key, dashscope_key, henghengmao_key, load_settings, save_settings
 from task_store import TaskStore
@@ -766,7 +767,7 @@ class App(tk.Tk):
         options=ttk.Frame(outer); options.grid(row=7,column=0,sticky="ew",pady=(10,0)); status=tk.StringVar(value=f"统一使用主配置模型：{self.llm_model.get()}")
         ttk.Label(options,textvariable=status,style="Muted.TLabel").pack(side="left")
         result_box=ttk.Frame(outer); result_box.grid(row=8,column=0,sticky="nsew",pady=(9,0)); result_box.columnconfigure(0,weight=1); result_box.rowconfigure(0,weight=1)
-        result_tree=ttk.Treeview(result_box,columns=("status","duration","output"),show="tree headings",height=4); result_tree.heading("#0",text="标题"); result_tree.heading("status",text="状态"); result_tree.heading("duration",text="改写时间"); result_tree.heading("output",text="输出文件"); result_tree.column("#0",width=220); result_tree.column("status",width=90,anchor="center"); result_tree.column("duration",width=100,anchor="center"); result_tree.column("output",width=330); result_tree.grid(row=0,column=0,sticky="nsew")
+        result_tree=ttk.Treeview(result_box,columns=("status","duration","output","action"),show="tree headings",height=4); result_tree.heading("#0",text="标题"); result_tree.heading("status",text="状态"); result_tree.heading("duration",text="改写时间"); result_tree.heading("output",text="输出文件"); result_tree.heading("action",text="操作"); result_tree.column("#0",width=190); result_tree.column("status",width=90,anchor="center"); result_tree.column("duration",width=90,anchor="center"); result_tree.column("output",width=310); result_tree.column("action",width=70,anchor="center",stretch=False); result_tree.grid(row=0,column=0,sticky="nsew")
         result_scroll=ttk.Scrollbar(result_box,orient="vertical",command=result_tree.yview); result_scroll.grid(row=0,column=1,sticky="ns"); result_tree.configure(yscrollcommand=result_scroll.set)
         result_state={}
         def display_result(index):
@@ -793,6 +794,27 @@ class App(tk.Tk):
         footer=ttk.Frame(outer); footer.grid(row=9,column=0,sticky="ew",pady=(10,0)); footer.columnconfigure(0,weight=1)
         progress_value=tk.DoubleVar(value=0); progress=ttk.Progressbar(footer,variable=progress_value,maximum=1,mode="determinate"); progress.grid(row=0,column=0,sticky="ew",padx=(0,12))
         progress_text=tk.StringVar(value="就绪"); ttk.Label(footer,textvariable=progress_text,style="Muted.TLabel",width=14,anchor="e").grid(row=0,column=1,sticky="e",padx=(0,12))
+        def retry_indices(indices):
+            context=result_state.get("context")
+            if not context or result_state.get("running"): return
+            indexed_items=select_failed_items(context["items"],set(indices)&result_state.get("failed_indices",set()))
+            if not indexed_items: return
+            with result_state["progress_lock"]:
+                result_state["failed_indices"].difference_update(index for index,_entry in indexed_items)
+                result_state["running"]=True
+            self.task_store.update_task(result_state["task_id"],status="运行中")
+            for index,_entry in indexed_items: self._set_rewrite_row(result_tree,index,"等待重试")
+            start_button.configure(state="disabled"); batch_retry_button.configure(state="disabled")
+            completed=len(result_state["successful_indices"]|result_state["failed_indices"])
+            self._update_rewrite_progress(progress,progress_value,progress_text,completed,result_state["total"])
+            status.set(f"正在重试 {len(indexed_items)} 条失败项")
+            self.run(lambda:self.rewrite_batch(indexed_items,context["prompt"],context["key"],context["model"],context["base_url"],context["reasoning_effort"],context["output_dir"],context["batch_time"],result_tree,status,start_button,batch_retry_button,result_state,output_text,progress,progress_value,progress_text))
+        def retry_failed(): retry_indices(set(result_state.get("failed_indices",set())))
+        def on_result_click(event):
+            if result_tree.identify_region(event.x,event.y)!="cell" or result_tree.identify_column(event.x)!="#4": return
+            row=result_tree.identify_row(event.y)
+            if row and int(row) in result_state.get("failed_indices",set()): retry_indices({int(row)})
+        result_tree.bind("<ButtonRelease-1>",on_result_click,add="+")
         def begin():
             save_current(); chosen=[dict(item) for item in entries]; instruction=prompt.get("1.0","end").strip(); selected_provider="New API"; compatible=True
             key=self.llm_key.get().strip(); selected_model=self.llm_model.get().strip(); base_url=self.llm_url.get().strip()
@@ -806,16 +828,17 @@ class App(tk.Tk):
             output_dir=self.step_directory(STEP_REWRITE_DIR)/f"改写批次_{batch_time}"
             output_dir.mkdir(parents=True,exist_ok=True)
             for row in result_tree.get_children(): result_tree.delete(row)
-            for index,item in enumerate(chosen): result_tree.insert("","end",iid=str(index),text=item["title"],values=("等待中","-",""))
+            for index,item in enumerate(chosen): result_tree.insert("","end",iid=str(index),text=item["title"],values=("等待中","-","",""))
             result_state["results"]={}; result_tree.selection_set("0"); result_tree.focus("0"); self._set_rewrite_output(output_text,chosen[0]["title"],"等待改写...")
             previous_result.configure(state="disabled"); next_result.configure(state="normal" if len(chosen)>1 else "disabled")
             task=self.task_store.create("rewrite",f"AI 改写批次 · {selected_provider} · {selected_model}",str(output_dir),[{"path":str(item["path"]),"name":item["title"]} for item in chosen]); self.task_store.update_task(task["id"],status="运行中")
-            result_state.update(task_id=task["id"],completed=0,success=0,total=len(chosen),progress_lock=threading.Lock(),results={})
+            context={"items":chosen,"prompt":instruction,"key":key,"model":selected_model,"base_url":base_url,"reasoning_effort":OPENAI_COMPAT_REASONING_EFFORT,"output_dir":output_dir,"batch_time":batch_time}
+            result_state.update(task_id=task["id"],total=len(chosen),progress_lock=threading.Lock(),results={},successful_indices=set(),failed_indices=set(),running=True,context=context)
             progress.configure(maximum=len(chosen)); progress_value.set(0); progress_text.set(f"0 / {len(chosen)}")
-            start_button.configure(state="disabled"); status.set(f"处理中 0/{len(chosen)}")
-            reasoning_effort=OPENAI_COMPAT_REASONING_EFFORT
-            self.run(lambda:self.rewrite_batch(chosen,instruction,key,selected_model,base_url,reasoning_effort,output_dir,batch_time,result_tree,status,start_button,result_state,output_text,progress,progress_value,progress_text))
-        start_button=ttk.Button(footer,text="开始生成",style="Primary.TButton",command=begin); start_button.grid(row=0,column=2,sticky="e")
+            start_button.configure(state="disabled"); batch_retry_button.configure(state="disabled"); status.set(f"处理中 0/{len(chosen)}")
+            self.run(lambda:self.rewrite_batch(list(enumerate(chosen)),instruction,key,selected_model,base_url,OPENAI_COMPAT_REASONING_EFFORT,output_dir,batch_time,result_tree,status,start_button,batch_retry_button,result_state,output_text,progress,progress_value,progress_text))
+        batch_retry_button=ttk.Button(footer,text="批量重试失败项",command=retry_failed,state="disabled"); batch_retry_button.grid(row=0,column=2,sticky="e",padx=(0,8))
+        start_button=ttk.Button(footer,text="开始生成",style="Primary.TButton",command=begin); start_button.grid(row=0,column=3,sticky="e")
         cut_dir=self.step_directory(STEP_CUT_DIR)
         # Step 4 follows the retimed subtitle produced by step 3. The subtitle
         # parser removes cue numbers and timestamps before sending copy to AI.
@@ -860,48 +883,49 @@ class App(tk.Tk):
         ttk.Button(actions,text="新建",command=lambda:(listing.selection_clear(0,"end"),name.set("新提示词"),content.delete("1.0","end"))).pack(side="left")
         ttk.Button(actions,text="保存",command=save_prompt).pack(side="left",padx=5); ttk.Button(actions,text="删除",command=delete_prompt).pack(side="left")
         ttk.Button(actions,text="应用到编辑框",style="Primary.TButton",command=apply_prompt).pack(side="right"); refresh(0 if self.rewrite_prompts else None)
-    def rewrite_batch(self,items,prompt,key,model,base_url,reasoning_effort,output_dir,batch_time,result_tree,status,start_button,result_state,output_text,progress,progress_value,progress_text):
-        max_attempts=3
+    def rewrite_batch(self,indexed_items,prompt,key,model,base_url,reasoning_effort,output_dir,batch_time,result_tree,status,start_button,batch_retry_button,result_state,output_text,progress,progress_value,progress_text):
         def operation(item):
             index,entry=item; label=entry["title"]; started=time.monotonic(); self.task_store.update_item(result_state["task_id"],index,status="改写中")
             self.after(0,lambda:self._set_rewrite_row(result_tree,index,"改写中"))
             try:
                 text=entry["text"].strip()
                 if not text: raise ValueError("转录 TXT 内容为空")
-                rewritten=None
-                for attempt in range(1,max_attempts+1):
-                    try:
-                        rewritten=ai.rewrite_text(text,prompt,key,model,base_url,reasoning_effort)
-                        break
-                    except Exception:
-                        if attempt==max_attempts: raise
-                        retry_status=f"重试中 ({attempt+1}/{max_attempts})"
-                        self.task_store.update_item(result_state["task_id"],index,status=retry_status)
-                        self.after(0,lambda state=retry_status:self._set_rewrite_row(result_tree,index,state))
-                        time.sleep(min(2**attempt,8))
-                safe_title=rename_service.safe_stem(label)
-                output=output_dir/f"{safe_title}_{batch_time}_{index+1:02d}.txt"; write_text(output,rewritten+"\n")
+                def on_retry(attempt,max_attempts):
+                    retry_status=f"重试中 ({attempt}/{max_attempts})"
+                    self.task_store.update_item(result_state["task_id"],index,status=retry_status)
+                    self.after(0,lambda state=retry_status:self._set_rewrite_row(result_tree,index,state))
+                rewritten=immediate_retry(lambda:ai.rewrite_text(text,prompt,key,model,base_url,reasoning_effort),max_attempts=3,on_retry=on_retry)
+                output=rewrite_output_path(output_dir,label,batch_time,index); write_text(output,rewritten+"\n")
                 elapsed=time.monotonic()-started; result_state["results"][index]={"title":label,"text":rewritten}
+                with result_state["progress_lock"]:
+                    result_state["successful_indices"].add(index); result_state["failed_indices"].discard(index)
                 self.task_store.update_item(result_state["task_id"],index,status="完成",progress=100,output=str(output),error="",duration_seconds=elapsed)
                 self.after(0,lambda:self._set_rewrite_row(result_tree,index,"完成",str(output),elapsed))
                 self.after(0,lambda:self._show_rewrite_result(result_tree,index,output_text,label,rewritten))
                 return output
             except Exception as exc:
                 error=str(exc); elapsed=time.monotonic()-started; result_state["results"][index]={"title":label,"text":f"改写失败\n\n{error}"}; self.task_store.update_item(result_state["task_id"],index,status="失败",error=error,duration_seconds=elapsed)
-                self.after(0,lambda:self._set_rewrite_row(result_tree,index,f"失败：{error}","",elapsed))
+                with result_state["progress_lock"]:
+                    result_state["failed_indices"].add(index); result_state["successful_indices"].discard(index)
+                self.after(0,lambda:self._set_rewrite_row(result_tree,index,f"失败：{error}","",elapsed,"重试"))
                 raise
             finally:
                 with result_state["progress_lock"]:
-                    result_state["completed"]+=1; completed=result_state["completed"]
-                self.after(0,lambda:self._update_rewrite_progress(progress,progress_value,progress_text,completed,len(items)))
-        results=run_batch(list(enumerate(items)),operation,workers=min(len(items),8),retries=0)
-        ok=sum(1 for _,_,error in results if error is None)
-        self.task_store.update_task(result_state["task_id"],status="完成" if ok==len(items) else "部分失败")
-        self.after(0,lambda:(start_button.configure(state="normal") if start_button.winfo_exists() else None,status.set(f"批次完成：成功 {ok}/{len(items)}") if status.winfo_exists() else None))
+                    completed=len(result_state["successful_indices"]|result_state["failed_indices"])
+                self.after(0,lambda:self._update_rewrite_progress(progress,progress_value,progress_text,completed,result_state["total"]))
+        run_batch(indexed_items,operation,workers=rewrite_worker_count(len(indexed_items)),retries=0)
+        with result_state["progress_lock"]:
+            result_state["running"]=False; ok=len(result_state["successful_indices"]); failed=len(result_state["failed_indices"])
+        self.task_store.update_task(result_state["task_id"],status="完成" if failed==0 else "部分失败")
+        self.after(0,lambda:self._finish_rewrite_batch_ui(start_button,batch_retry_button,status,ok,result_state["total"],failed))
     def _update_rewrite_progress(self,bar,value,label,completed,total):
         if bar.winfo_exists(): value.set(completed); label.set(f"{completed} / {total}")
-    def _set_rewrite_row(self,tree,index,state,output="",duration=None):
-        if tree.winfo_exists(): tree.item(str(index),values=(state,f"{duration:.1f} 秒" if duration is not None else "-",output))
+    def _set_rewrite_row(self,tree,index,state,output="",duration=None,action=""):
+        if tree.winfo_exists(): tree.item(str(index),values=(state,f"{duration:.1f} 秒" if duration is not None else "-",output,action))
+    def _finish_rewrite_batch_ui(self,start_button,batch_retry_button,status,success,total,failed):
+        if start_button.winfo_exists(): start_button.configure(state="normal")
+        if batch_retry_button.winfo_exists(): batch_retry_button.configure(state="normal" if failed else "disabled")
+        if status.winfo_exists(): status.set(f"批次完成：成功 {success}/{total}" + (f"，失败 {failed} 条可重试" if failed else ""))
     def _show_rewrite_result(self,tree,index,widget,title,text):
         if tree.winfo_exists() and tree.focus()==str(index): self._set_rewrite_output(widget,title,text)
     def _set_rewrite_output(self,widget,title,text):
