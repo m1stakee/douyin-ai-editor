@@ -1,5 +1,7 @@
 import json
 import requests
+import time
+import local_logger
 
 SRT_DELETION_PROMPT=("我会发给你一段解说视频的 .srt 字幕文件。任务：只通过整段删除字幕行进行剪辑，不改任何字句，把成片时长控制在原视频60%~80%的区间内。剪辑规则（从高到低优先级）：\n"
         "1.时长是最高优先级：结合srt文件中给出的时间轴，剪辑后成品保留60%~80%之间的时间即可，不需要尽量接近某个具体时长\n"
@@ -18,7 +20,7 @@ def list_models(base_url: str, key: str) -> list[str]:
     url=base_url.strip().rstrip("/")
     if url.endswith("/chat/completions"): url=url[:-len("/chat/completions")]
     if not url.endswith("/v1"): url += "/v1"
-    response=requests.get(url+"/models",headers={"Authorization":f"Bearer {key.strip()}","Content-Type":"application/json"},timeout=30)
+    response=local_logger.request(requests.get,url+"/models",headers={"Authorization":f"Bearer {key.strip()}","Content-Type":"application/json"},timeout=30)
     if not response.ok: raise ValueError(f"模型列表请求失败（HTTP {response.status_code}）：{_response_error(response)}")
     try: data=response.json().get("data",[])
     except (TypeError,ValueError): raise ValueError("模型列表返回格式无效")
@@ -63,7 +65,7 @@ def chat(base_url: str, key: str, model: str, system: str, user: str, reasoning_
     if reasoning_effort: attempts.append(dict(base))
     last=None
     for position,body in enumerate(attempts):
-        r=requests.post(url,headers=headers,json=body,timeout=180); last=r
+        r=local_logger.request(requests.post,url,headers=headers,json=body,timeout=180); last=r
         if r.ok:
             try: content=r.json()["choices"][0]["message"]["content"]
             except (KeyError,IndexError,TypeError,ValueError) as exc: raise ValueError("模型接口返回格式不完整") from exc
@@ -80,9 +82,15 @@ def rewrite_text(text: str, prompt: str, key: str, model: str, base_url: str | N
     body={"model":model,"temperature":0.7,"messages":[{"role":"system","content":prompt.strip()},{"role":"user","content":text.strip()}]}
     if "ark.cn-beijing.volces.com" in url: body["thinking"]={"type":"disabled"}
     if reasoning_effort: body["reasoning_effort"]=reasoning_effort
-    response=requests.post(url,headers={"Authorization":f"Bearer {key.strip()}","Content-Type":"application/json"},json=body,timeout=120)
-    response.raise_for_status()
-    content=response.json()["choices"][0]["message"]["content"]
+    started=time.monotonic(); local_logger.info("rewrite request start model=%s url=%s input_chars=%s", model, url, len(text))
+    try:
+        response=local_logger.request(requests.post,url,headers={"Authorization":f"Bearer {key.strip()}","Content-Type":"application/json"},json=body,timeout=120)
+        local_logger.info("rewrite response status=%s elapsed=%.1fs", response.status_code, time.monotonic()-started)
+        response.raise_for_status()
+        content=response.json()["choices"][0]["message"]["content"]
+    except Exception:
+        local_logger.error("rewrite request failed model=%s url=%s elapsed=%.1fs", model, url, time.monotonic()-started, exc_info=True)
+        raise
     if not isinstance(content,str) or not content.strip(): raise ValueError("模型接口返回了空文案")
     return content.strip()
 

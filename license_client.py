@@ -2,6 +2,7 @@ import hashlib, os, platform, uuid
 import tkinter as tk
 from tkinter import messagebox, ttk
 import requests
+import local_logger
 
 LICENSE_SERVER_URL = "http://124.220.178.193:10190"
 
@@ -12,7 +13,7 @@ def device_id() -> str:
 def verify_license(server_url: str, license_key: str, timeout: int = 12) -> tuple[bool, str]:
     url = server_url.rstrip('/') + '/api/license/verify'
     try:
-        response = requests.post(url, json={"license_key": license_key, "device_id": device_id(), "device_name": platform.node(), "app_version": "1.0"}, timeout=timeout)
+        response = local_logger.request(requests.post,url, json={"license_key": license_key, "device_id": device_id(), "device_name": platform.node(), "app_version": "1.0"}, timeout=timeout)
         payload = response.json()
         return bool(payload.get('valid')), str(payload.get('message') or payload.get('code') or '授权验证失败')
     except requests.RequestException as exc:

@@ -3,6 +3,9 @@ __pycache__/
 .pytest_cache/
 build/
 dist/
+build-*/
+dist-*/
+logs/
 *.spec
 credentials.local.json
 settings.local.json

@@ -1,6 +1,7 @@
 import json
 import sys
 import threading
+import time
 import uuid
 from copy import deepcopy
 from datetime import datetime
@@ -18,6 +19,7 @@ class TaskStore:
     def __init__(self, path: Path | None = None):
         self.path = Path(path) if path else default_task_history_path()
         self._lock = threading.RLock()
+        self._last_save_time = 0.0
         self._tasks = self._load()
         changed = False
         for task in self._tasks:
@@ -80,6 +82,11 @@ class TaskStore:
             task["updated_at"] = datetime.now().astimezone().isoformat(timespec="seconds")
             self._save()
 
+    def flush(self):
+        with self._lock:
+            self._save()
+            self._last_save_time = time.monotonic()
+
     def update_item(self, task_id: str, index: int, **values):
         with self._lock:
             task = next((task for task in self._tasks if task.get("id") == task_id), None)
@@ -91,6 +98,11 @@ class TaskStore:
                 normalized["progress"] = int(max(0, min(100, normalized["progress"])))
             if all(item.get(key) == value for key, value in normalized.items()):
                 return
+            old_status = item.get("status")
             item.update(normalized)
             task["updated_at"] = datetime.now().astimezone().isoformat(timespec="seconds")
-            self._save()
+            status_changed = ("status" in normalized and normalized["status"] != old_status) or ("error" in normalized and normalized["error"])
+            now = time.monotonic()
+            if status_changed or normalized.get("progress") in {0, 100} or (now - self._last_save_time >= 1.0):
+                self._save()
+                self._last_save_time = now

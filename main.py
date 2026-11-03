@@ -5,6 +5,7 @@ import re
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
 import downloader_service, media, asr, ai, rename_service, voicevox_service
+import local_logger
 from text_io import read_text, write_text
 from rewrite_source import read_rewrite_source
 from rewrite_batch_service import immediate_retry, rewrite_output_path, rewrite_worker_count, select_failed_items
@@ -29,7 +30,7 @@ STEP_LIBRARY_DIR="6_资源库"
 class App(tk.Tk):
     def __init__(self):
         super().__init__(); self.title("VideoFlow · 短视频智能工作台"); self.geometry("1180x820"); self.minsize(1000,720); self.configure(bg="#EEF1F5")
-        saved=load_settings(); output=saved.get("output_directory",""); self.project=Path(output) if output else None
+        saved=load_settings(); local_logger.register_secrets(saved); output=saved.get("output_directory",""); self.project=Path(output) if output else None
         stored_prompts=saved.get("rewrite_prompts")
         defaults=[{"name":name,"text":text} for name,text in DEFAULT_REWRITE_PROMPTS.items()]
         self.rewrite_prompts=stored_prompts if isinstance(stored_prompts,list) else defaults
@@ -53,6 +54,8 @@ class App(tk.Tk):
         self.after(50, self._authorize_startup)
         self.protocol("WM_DELETE_WINDOW",self.close_app)
     def _authorize_startup(self):
+        if local_logger.logging_error():
+            messagebox.showwarning("日志写入失败",f"无法写入软件旁的日志目录：{local_logger.log_directory()}\n{local_logger.logging_error()}\n请将软件移到有写入权限的目录。",parent=self)
         result=verify_saved_license(self.license_key.get())
         if not result:
             result=require_license(self, self.license_key.get())
@@ -61,8 +64,14 @@ class App(tk.Tk):
     def _setup_style(self):
         style=ttk.Style(self); style.theme_use("clam")
         style.configure("TFrame",background="#EEF1F5"); style.configure("Panel.TFrame",background="#FFFFFF")
+        style.configure("CardPanel.TFrame",background="#FFFFFF",bordercolor="#D8E2EC",relief="solid",borderwidth=1)
+        style.configure("ConfigGroup.TFrame",background="#F8FAFC",bordercolor="#D8E2EC",relief="solid",borderwidth=1)
+        style.configure("ConfigRow.TFrame",background="#F8FAFC",borderwidth=0)
         style.configure("TLabel",background="#EEF1F5",foreground="#203047",font=("Microsoft YaHei UI",9))
         style.configure("Panel.TLabel",background="#FFFFFF",foreground="#203047",font=("Microsoft YaHei UI",9))
+        style.configure("ConfigLabel.TLabel",background="#F8FAFC",foreground="#334155",font=("Microsoft YaHei UI",9))
+        style.configure("ConfigHeading.TLabel",background="#F8FAFC",foreground="#0F172A",font=("Microsoft YaHei UI",10,"bold"))
+        style.configure("ConfigHint.TLabel",background="#F8FAFC",foreground="#64748B",font=("Microsoft YaHei UI",8))
         style.configure("Brand.TLabel",background="#152238",foreground="#FFFFFF",font=("Microsoft YaHei UI",19,"bold"))
         style.configure("BrandSub.TLabel",background="#152238",foreground="#A8B7CC",font=("Microsoft YaHei UI",9))
         style.configure("Section.TLabel",background="#FFFFFF",foreground="#152238",font=("Microsoft YaHei UI",12,"bold"))
@@ -76,7 +85,12 @@ class App(tk.Tk):
         style.map("Selected.TButton",background=[("active","#236452")])
         style.configure("Flow.TButton",font=("Microsoft YaHei UI",9,"bold"),padding=(13,10),background="#F2F5F8",foreground="#203047")
         style.map("Flow.TButton",background=[("active","#E4EAF1")])
-        style.configure("TEntry",padding=7,fieldbackground="#F8FAFC",bordercolor="#D5DCE5"); style.configure("TCombobox",padding=6,fieldbackground="#F8FAFC")
+        style.configure("ConfigAction.TButton",font=("Microsoft YaHei UI",8),padding=(5,4),background="#EDF2F7",foreground="#334155",borderwidth=0)
+        style.map("ConfigAction.TButton",background=[("active","#DFE5EC"),("disabled","#E2E8F0")],foreground=[("disabled","#94A3B8")])
+        style.configure("ConfigToggle.TButton",font=("Microsoft YaHei UI",9,"bold"),padding=(10,8),background="#F1F5F9",foreground="#1E293B",borderwidth=0)
+        style.map("ConfigToggle.TButton",background=[("active","#E2E8F0")])
+        style.configure("TEntry",padding=6,fieldbackground="#FFFFFF",bordercolor="#D5DCE5")
+        style.configure("TCombobox",padding=5,fieldbackground="#FFFFFF")
     def build(self):
         header=tk.Frame(self,bg="#152238",height=76); header.pack(fill="x"); header.pack_propagate(False)
         brand=tk.Frame(header,bg="#152238"); brand.pack(fill="both",expand=True,padx=26,pady=12)
@@ -85,11 +99,11 @@ class App(tk.Tk):
         self.main_canvas=tk.Canvas(viewport,bg="#EEF1F5",highlightthickness=0); self.main_canvas.grid(row=0,column=0,sticky="nsew")
         main_scroll=ttk.Scrollbar(viewport,orient="vertical",command=self.main_canvas.yview); main_scroll.grid(row=0,column=1,sticky="ns"); self.main_canvas.configure(yscrollcommand=main_scroll.set)
         body=ttk.Frame(self.main_canvas,padding=18); self.main_body_window=self.main_canvas.create_window((0,0),window=body,anchor="nw")
-        body.bind("<Configure>",lambda _event:self.main_canvas.configure(scrollregion=self.main_canvas.bbox("all")))
+        body.bind("<Configure>",lambda event: self.main_canvas.configure(scrollregion=self.main_canvas.bbox("all")) if event.widget is body else None)
         self.main_canvas.bind("<Configure>",lambda event:self.main_canvas.itemconfigure(self.main_body_window,width=event.width))
         self.bind_all("<MouseWheel>",self._scroll_main_window,add="+")
-        body.columnconfigure(0,weight=7); body.columnconfigure(1,weight=4); body.rowconfigure(1,weight=1)
-        source=ttk.Frame(body,style="Panel.TFrame",padding=18); source.grid(row=0,column=0,sticky="nsew",padx=(0,9),pady=(0,10)); source.columnconfigure(0,weight=1)
+        body.columnconfigure(0,weight=1); body.columnconfigure(1,weight=0,minsize=420); body.rowconfigure(0,weight=0); body.rowconfigure(1,weight=1)
+        source=ttk.Frame(body,style="CardPanel.TFrame",padding=18); source.grid(row=0,column=0,sticky="new",padx=(0,10),pady=(0,10)); source.columnconfigure(0,weight=1)
         ttk.Label(source,text="视频来源",style="Section.TLabel").grid(row=0,column=0,sticky="w"); ttk.Label(source,text="粘贴多个独立视频地址，每条链接分别解析并并发下载",style="Muted.TLabel").grid(row=1,column=0,sticky="w",pady=(3,10))
         self.url_text=tk.Text(source,height=8,wrap="word",font=("Microsoft YaHei UI",10),bg="#F8FAFC",fg="#203047",insertbackground="#F06449",relief="flat",padx=11,pady=10,highlightthickness=1,highlightbackground="#D5DCE5",highlightcolor="#F06449"); self.url_text.grid(row=2,column=0,sticky="nsew")
         directory=ttk.Frame(source,style="Panel.TFrame"); directory.grid(row=3,column=0,sticky="ew",pady=(11,0)); ttk.Label(directory,textvariable=self.project_text,style="Muted.TLabel").pack(side="left",fill="x",expand=True); ttk.Button(directory,text="选择目录",command=self.choose_project).pack(side="left",padx=5); ttk.Button(directory,text="打开目录",command=self.open_project).pack(side="left")
@@ -101,37 +115,59 @@ class App(tk.Tk):
         self.task_canvas=tk.Canvas(task_box,height=132,bg="#FFFFFF",highlightthickness=1,highlightbackground="#E1E6ED"); self.task_canvas.grid(row=1,column=0,sticky="ew")
         task_scroll=ttk.Scrollbar(task_box,orient="vertical",command=self.task_canvas.yview); task_scroll.grid(row=1,column=1,sticky="ns"); self.task_canvas.configure(yscrollcommand=task_scroll.set)
         self.task_rows_frame=ttk.Frame(self.task_canvas,style="Panel.TFrame"); self.task_rows_window=self.task_canvas.create_window((0,0),window=self.task_rows_frame,anchor="nw")
-        self.task_rows_frame.bind("<Configure>",lambda event: self.task_canvas.configure(scrollregion=self.task_canvas.bbox("all")))
+        self.task_rows_frame.bind("<Configure>",lambda event: self.task_canvas.configure(scrollregion=self.task_canvas.bbox("all")) if event.widget is self.task_rows_frame else None)
         self.task_canvas.bind("<Configure>",lambda event: self.task_canvas.itemconfigure(self.task_rows_window,width=event.width))
         self.task_rows={}; self.task_windows={}; self.batch_controls={}; self.batch_contexts={}; self.batch_counter=0; self.latest_batch_id=0
         self.transcribe_rows={}; self.transcribe_windows={}; self.transcribe_controls={}; self.transcribe_contexts={}; self.transcribe_counter=0; self.latest_transcribe_id=0
-        settings=ttk.Frame(body,style="Panel.TFrame",padding=18); settings.grid(row=0,column=1,sticky="nsew",padx=(9,0),pady=(0,10)); settings.columnconfigure(0,weight=1)
+        settings=ttk.Frame(body,style="CardPanel.TFrame",padding=18); settings.grid(row=0,column=1,rowspan=2,sticky="new",padx=(0,0),pady=(0,10)); settings.columnconfigure(0,weight=1)
         ttk.Label(settings,text="处理设置",style="Section.TLabel").grid(row=0,column=0,sticky="w"); ttk.Label(settings,text="保存后下次启动自动恢复",style="Muted.TLabel").grid(row=1,column=0,sticky="w",pady=(3,9))
         self._combo(settings,"视频清晰度",self.download_quality,["推荐","最高","1080P","720P"],2,0); self._combo(settings,"原声语言",self.source_lang,["中文","英语","日语","韩语","西班牙语","法语","德语"],3,0)
-        self.advanced_button=ttk.Button(settings,text="展开接口与工具配置",command=self.toggle_advanced); self.advanced_button.grid(row=4,column=0,sticky="ew",pady=(9,5))
-        self.advanced=ttk.Frame(settings,style="Panel.TFrame"); self._field(self.advanced,"软件卡密",self.license_key,0,0,secret=True); self._field(self.advanced,"哼哼猫 Key",self.download_key,1,0,secret=True); self._field(self.advanced,"阿里百炼 Key",self.asr_key,2,0,secret=True); self._field(self.advanced,"New API Base URL",self.llm_url,3,0); self._field(self.advanced,"ChatGPT 接口 Key",self.llm_key,4,0,secret=True)
-        model_box=ttk.Frame(self.advanced,style="Panel.TFrame"); model_box.grid(row=5,column=0,columnspan=2,sticky="ew",pady=3); ttk.Label(model_box,text="New API 模型",width=11,style="Panel.TLabel").pack(side="left"); self.llm_model_picker=ttk.Combobox(model_box,textvariable=self.llm_model,values=[OPENAI_COMPAT_MODEL],state="normal"); self.llm_model_picker.pack(side="left",fill="x",expand=True); ttk.Button(model_box,text="获取模型列表",command=self.fetch_llm_models).pack(side="left",padx=(5,0)); self._field(self.advanced,"豆包 Ark Key",self.ark_key,6,0,secret=True)
-        controls=ttk.Frame(settings,style="Panel.TFrame"); controls.grid(row=6,column=0,sticky="ew",pady=(9,0)); ttk.Button(controls,text="批量重命名",command=self.open_rename_window).pack(side="left"); ttk.Button(controls,text="保存全部配置",style="Primary.TButton",command=self.save_all_settings).pack(side="right")
-        logs=ttk.Frame(body,style="Panel.TFrame",padding=16); logs.grid(row=1,column=0,columnspan=2,sticky="nsew"); logs.columnconfigure(0,weight=1); logs.rowconfigure(1,weight=1); ttk.Label(logs,text="任务记录",style="Section.TLabel").grid(row=0,column=0,sticky="w",pady=(0,8))
+        self.advanced_button=ttk.Button(settings,text="展开接口与工具配置",style="ConfigToggle.TButton",command=self.toggle_advanced); self.advanced_button.grid(row=4,column=0,sticky="ew",pady=(10,8))
+        self.advanced=ttk.Frame(settings,style="Panel.TFrame"); self.advanced.columnconfigure(0,weight=1)
+        credentials=ttk.Frame(self.advanced,style="ConfigGroup.TFrame",padding=(14,12)); credentials.grid(row=0,column=0,sticky="ew",pady=(0,10)); credentials.columnconfigure(0,weight=1)
+        ttk.Label(credentials,text="凭证与下载",style="ConfigHeading.TLabel").grid(row=0,column=0,sticky="w",pady=(0,2)); ttk.Label(credentials,text="用于软件授权、视频解析和临时音频上传",style="ConfigHint.TLabel").grid(row=1,column=0,sticky="w",pady=(0,6))
+        tk.Frame(credentials,height=1,bg="#E2E8F0").grid(row=2,column=0,columnspan=2,sticky="ew",pady=(0,6))
+        self._field(credentials,"软件卡密",self.license_key,3,0,secret=True,config_style=True); self._field(credentials,"哼哼猫 Key",self.download_key,4,0,secret=True,config_style=True); self._field(credentials,"百炼临时 OSS Key",self.asr_key,5,0,secret=True,config_style=True)
+        newapi=ttk.Frame(self.advanced,style="ConfigGroup.TFrame",padding=(14,12)); newapi.grid(row=1,column=0,sticky="ew",pady=(0,10)); newapi.columnconfigure(0,weight=1)
+        ttk.Label(newapi,text="New API 接口",style="ConfigHeading.TLabel").grid(row=0,column=0,sticky="w",pady=(0,2)); ttk.Label(newapi,text="统一用于 Paraformer 转写和模型任务",style="ConfigHint.TLabel").grid(row=1,column=0,sticky="w",pady=(0,6))
+        tk.Frame(newapi,height=1,bg="#E2E8F0").grid(row=2,column=0,columnspan=2,sticky="ew",pady=(0,6))
+        self._field(newapi,"Base URL",self.llm_url,3,0,config_style=True,reset_value=OPENAI_COMPAT_URL); self._field(newapi,"API Key",self.llm_key,4,0,secret=True,config_style=True)
+        model_box=ttk.Frame(newapi,style="ConfigRow.TFrame"); model_box.grid(row=5,column=0,columnspan=2,sticky="ew",pady=3); model_box.columnconfigure(1,weight=1); ttk.Label(model_box,text="模型",width=15,anchor="w",style="ConfigLabel.TLabel").grid(row=0,column=0,sticky="w",padx=(0,8)); self.llm_model_picker=ttk.Combobox(model_box,textvariable=self.llm_model,values=[OPENAI_COMPAT_MODEL],state="normal"); self.llm_model_picker.grid(row=0,column=1,sticky="ew"); self.fetch_llm_button=ttk.Button(model_box,text="获取模型",width=8,style="ConfigAction.TButton",command=self.fetch_llm_models); self.fetch_llm_button.grid(row=0,column=2,padx=(6,0))
+        other_services=ttk.Frame(self.advanced,style="ConfigGroup.TFrame",padding=(14,12)); other_services.grid(row=2,column=0,sticky="ew",pady=(0,6)); other_services.columnconfigure(0,weight=1); ttk.Label(other_services,text="其他服务",style="ConfigHeading.TLabel").grid(row=0,column=0,sticky="w",pady=(0,2)); ttk.Label(other_services,text="用于火山方舟豆包大模型等扩展能力",style="ConfigHint.TLabel").grid(row=1,column=0,sticky="w",pady=(0,6)); tk.Frame(other_services,height=1,bg="#E2E8F0").grid(row=2,column=0,columnspan=2,sticky="ew",pady=(0,6)); self._field(other_services,"豆包 Ark Key",self.ark_key,3,0,secret=True,config_style=True)
+        controls=ttk.Frame(settings,style="Panel.TFrame"); controls.grid(row=6,column=0,sticky="ew",pady=(12,0)); controls.columnconfigure(0,weight=1); controls.columnconfigure(1,weight=1); controls.columnconfigure(2,weight=1); ttk.Button(controls,text="批量重命名",command=self.open_rename_window).grid(row=0,column=0,sticky="ew",padx=(0,5)); ttk.Button(controls,text="打开日志目录",command=self.open_log_directory).grid(row=0,column=1,sticky="ew",padx=5); ttk.Button(controls,text="保存全部配置",style="Primary.TButton",command=self.save_all_settings).grid(row=0,column=2,sticky="ew",padx=(5,0))
+        logs=ttk.Frame(body,style="CardPanel.TFrame",padding=16); logs.grid(row=1,column=0,sticky="nsew",padx=(0,10),pady=0); logs.columnconfigure(0,weight=1); logs.rowconfigure(1,weight=1); ttk.Label(logs,text="任务记录",style="Section.TLabel").grid(row=0,column=0,sticky="w",pady=(0,8))
         log_frame=tk.Frame(logs,bg="#182333"); log_frame.grid(row=1,column=0,sticky="nsew"); self.text=tk.Text(log_frame,height=10,wrap="word",font=("Consolas",9),bg="#182333",fg="#D8E0EA",insertbackground="#FFFFFF",relief="flat",padx=12,pady=10); log_scroll=ttk.Scrollbar(log_frame,orient="vertical",command=self.text.yview); self.text.configure(yscrollcommand=log_scroll.set); self.text.pack(side="left",fill="both",expand=True); log_scroll.pack(side="right",fill="y")
     def _scroll_main_window(self,event):
         if event.widget.winfo_toplevel() is self and not isinstance(event.widget,tk.Text) and self.main_canvas.winfo_exists():
             units=-1 if event.delta>0 else 1
             self.main_canvas.yview_scroll(units*3,"units")
-    def _field(self, parent, label, var, row, col, secret=False, browse=False):
-        box=ttk.Frame(parent,style="Panel.TFrame"); box.grid(row=row,column=col,columnspan=2,sticky="ew",padx=0,pady=3); parent.columnconfigure(col,weight=1)
-        ttk.Label(box,text=label,width=11,style="Panel.TLabel").pack(side="left"); ttk.Entry(box,textvariable=var,show="*" if secret else "").pack(side="left",fill="x",expand=True)
-        if browse: ttk.Button(box,text="选择",command=self.choose_ffmpeg,width=6).pack(side="left",padx=(4,0))
+    def _field(self, parent, label, var, row, col, secret=False, browse=False, config_style=False, reset_value=None):
+        frame_style="ConfigRow.TFrame" if config_style else "Panel.TFrame"; label_style="ConfigLabel.TLabel" if config_style else "Panel.TLabel"
+        box=ttk.Frame(parent,style=frame_style); box.grid(row=row,column=col,columnspan=2,sticky="ew",padx=0,pady=3); box.columnconfigure(1,weight=1); parent.columnconfigure(col,weight=1)
+        ttk.Label(box,text=label,width=15,anchor="w",style=label_style).grid(row=0,column=0,sticky="w",padx=(0,8))
+        entry=ttk.Entry(box,textvariable=var,show="*" if secret else ""); entry.grid(row=0,column=1,sticky="ew")
+        if secret:
+            toggle_btn=ttk.Button(box,text="显示",width=5,style="ConfigAction.TButton")
+            def _toggle(e=entry,b=toggle_btn):
+                if e.cget("show")=="*": e.configure(show=""); b.configure(text="隐藏")
+                else: e.configure(show="*"); b.configure(text="显示")
+            toggle_btn.configure(command=_toggle); toggle_btn.grid(row=0,column=2,padx=(6,0))
+        elif reset_value is not None:
+            reset_btn=ttk.Button(box,text="默认",width=5,style="ConfigAction.TButton",command=lambda:var.set(reset_value))
+            reset_btn.grid(row=0,column=2,padx=(6,0))
+        elif browse: ttk.Button(box,text="选择",command=self.choose_ffmpeg,width=6,style="ConfigAction.TButton").grid(row=0,column=2,padx=(6,0))
     def _combo(self, parent, label, var, values, row, col, editable=False):
         box=ttk.Frame(parent,style="Panel.TFrame"); box.grid(row=row,column=col,columnspan=2,sticky="ew",padx=0,pady=3); parent.columnconfigure(col,weight=1)
         ttk.Label(box,text=label,width=11,style="Panel.TLabel").pack(side="left"); ttk.Combobox(box,textvariable=var,values=values,state="normal" if editable else "readonly").pack(side="left",fill="x",expand=True)
     def toggle_advanced(self):
         if self.advanced.winfo_manager(): self.advanced.grid_remove(); self.advanced_button.configure(text="展开接口与工具配置")
-        else: self.advanced.grid(row=5,column=0,sticky="ew"); self.advanced_button.configure(text="收起接口与工具配置")
+        else: self.advanced.grid(row=5,column=0,sticky="ew",pady=(0,4)); self.advanced_button.configure(text="收起接口与工具配置")
+        self.after_idle(lambda:self.main_canvas.configure(scrollregion=self.main_canvas.bbox("all")))
     def settings_values(self):
         return {"output_directory":str(self.project or ""),"download_quality":self.download_quality.get(),"download_workers":self.download_workers.get(),"source_lang":self.source_lang.get(),"henghengmao_api_key":self.download_key.get(),"dashscope_api_key":self.asr_key.get(),"llm_base_url":self.llm_url.get().strip(),"llm_key":self.llm_key.get(),"llm_model":self.llm_model.get(),"answer_directory":self.answer_directory.get(),"anti_flash_directory":self.anti_flash_directory.get(),"library_directory":self.library_directory.get(),"ark_api_key":self.ark_key.get(),"target_lang":self.lang.get(),"writing_style":self.style.get(),"writing_length":self.length.get(),"license_key":self.license_key.get(),"voicevox_path":self.voicevox_path.get(),"voicevox_voice":self.voicevox_voice.get(),"voicevox_speed":self.voicevox_speed.get(),"voicevox_pitch":self.voicevox_pitch.get(),"voicevox_volume":self.voicevox_volume.get(),"voicevox_pause":self.voicevox_pause.get(),"voicevox_output_directory":self.voicevox_output_directory.get(),"voicevox_output_format":self.voicevox_output_format.get(),"voicevox_use_gpu":self.voicevox_use_gpu.get(),"rewrite_prompts":self.rewrite_prompts,"cut_prompts":self.cut_prompts}
     def fetch_llm_models(self):
         self.status.set("正在获取模型列表…")
+        if hasattr(self,"fetch_llm_button"): self.fetch_llm_button.configure(state="disabled",text="获取中…")
         def work():
             try:
                 models=ai.list_models(self.llm_url.get(),self.llm_key.get())
@@ -139,16 +175,20 @@ class App(tk.Tk):
             except Exception as exc: self.after(0,lambda:self._llm_models_failed(str(exc)))
         self.run(work)
     def _show_llm_models(self, models):
+        if hasattr(self,"fetch_llm_button"): self.fetch_llm_button.configure(state="normal",text="获取模型")
         self.llm_models=models; self.llm_model_picker.configure(values=models)
         if self.llm_model.get() not in models: self.llm_model.set("gpt-6.1-sol" if "gpt-6.1-sol" in models else models[0])
         self.status.set(f"已获取 {len(models)} 个模型")
     def _llm_models_failed(self, error):
+        if hasattr(self,"fetch_llm_button"): self.fetch_llm_button.configure(state="normal",text="获取模型")
         self.status.set("获取模型列表失败")
         messagebox.showerror("获取模型列表失败",error,parent=self)
     def save_all_settings(self,notify=True):
         path=save_settings(self.settings_values()); self.status.set("配置已保存")
         if notify: messagebox.showinfo("保存配置",f"全部配置已保存到本机：{path.name}")
     def close_app(self):
+        local_logger.info("app.close")
+        self.task_store.flush()
         self.save_all_settings(False)
         for group in (self.batch_controls,self.transcribe_controls):
             for controls in group.values():
@@ -416,13 +456,16 @@ class App(tk.Tk):
         tree=self.task_center_tree
         if not tree or not tree.winfo_exists(): return
         selected=tree.selection(); selected_id=selected[0] if selected else None
-        for row in tree.get_children(): tree.delete(row)
+        existing=set(tree.get_children()); seen=set()
         for task in self.task_store.list():
             items=task.get("items",[]); progress=round(sum(item.get("progress",0) for item in items)/len(items)) if items else 0
             created=str(task.get("created_at","")).replace("T"," ")[:19]
             kind={"download":"下载视频","transcribe":"文案与 SRT","rewrite":"AI 改写"}.get(task.get("kind"),task.get("kind",""))
-            tree.insert("", "end", iid=task["id"], values=(created,kind,task.get("title",""),len(items),task.get("status",""),f"{progress}%"))
-        if selected_id and tree.exists(selected_id): tree.selection_set(selected_id)
+            iid=task["id"]; seen.add(iid); vals=(created,kind,task.get("title",""),len(items),task.get("status",""),f"{progress}%")
+            if iid in existing: tree.item(iid,values=vals)
+            else: tree.insert("","end",iid=iid,values=vals)
+        for iid in (existing-seen): tree.delete(iid)
+        if selected_id and tree.exists(selected_id) and not tree.selection(): tree.selection_set(selected_id)
     def open_task_center(self):
         if self.task_center_window and self.task_center_window.winfo_exists(): self.task_center_window.deiconify(); self.task_center_window.lift(); self.refresh_task_center(); return
         win=tk.Toplevel(self); win.title("任务中心"); win.geometry("1050x560"); win.minsize(820,380); self.task_center_window=win
@@ -508,7 +551,7 @@ class App(tk.Tk):
                 task_row=task["rows"].get(index)
                 if task_row:
                     bar,state,retry=task_row; percent=max(0,min(100,value)); bar.configure(value=percent); state.set(status or f"下载中 {percent:.0f}%"); retry.configure(state="normal" if status=="失败" else "disabled")
-            self.refresh_task_center()
+            if self.task_center_tree and self.task_center_tree.winfo_exists(): self.refresh_task_center()
         self.after(0,update)
     def control_download(self,batch_id,index,resume):
         controls=self.batch_controls.get(batch_id,[])
@@ -529,7 +572,23 @@ class App(tk.Tk):
             except Exception as exc:
                 self.set_task_progress(batch_id,index,0,"失败"); self.log(f"[批次 {batch_id} · {index+1}] 重新解析失败：{exc}")
         self.run(retry)
-    def log(self,x): self.after(0,lambda: (self.text.insert("end",x+"\n"),self.text.see("end")))
+    def log(self,x):
+        local_logger.info(x)
+        def append():
+            self.text.insert("end",str(x)+"\n")
+            lines=int(self.text.index("end-1c").split(".")[0])
+            if lines>500: self.text.delete("1.0",f"{lines-400}.0")
+            self.text.see("end")
+        self.after(0,append)
+    def open_log_directory(self):
+        try:
+            directory=local_logger.log_directory(); directory.mkdir(parents=True,exist_ok=True)
+            os.startfile(str(directory))
+        except OSError as exc:
+            messagebox.showerror("打开日志失败",str(exc),parent=self)
+    def report_callback_exception(self,kind,value,tb):
+        local_logger.error("Tk callback failed",exc_info=(kind,value,tb))
+        messagebox.showerror("操作失败",f"{value}\n日志目录：{local_logger.log_directory()}",parent=self)
     def run(self,fn): threading.Thread(target=fn,daemon=True).start()
     def open_download_window(self,batch_id,urls,controls):
         win=tk.Toplevel(self); win.title(f"下载任务 · 批次 {batch_id}"); win.geometry("980x430"); win.minsize(760,300)
@@ -589,7 +648,7 @@ class App(tk.Tk):
             row=self.transcribe_rows.get((batch_id,index)); percent=max(0,min(100,value))
             if row:
                 bar,state,retry=row; bar.configure(value=percent); state.set(status); retry.configure(state="normal" if status=="失败" else "disabled")
-            self.refresh_task_center()
+            if self.task_center_tree and self.task_center_tree.winfo_exists(): self.refresh_task_center()
         self.after(0,update)
     def control_transcribe(self,batch_id,index,resume):
         controls=self.transcribe_controls.get(batch_id,[])
@@ -612,7 +671,8 @@ class App(tk.Tk):
             control.checkpoint(); self.set_transcribe_progress(batch_id,index,5,"准备音频")
             status=lambda value:self.set_transcribe_progress(batch_id,index,45 if "识别" in value else (12 if "提取" in value else 20),value)
             with asr.prepared_asr_audio(str(video),context["ffmpeg"],status) as audio_path:
-                control.checkpoint(); seg=asr.transcribe(audio_path,key=context["api_key"],language=context["source_lang"],on_status=status)
+                control.checkpoint(); duration=media.probe_duration(context["ffmpeg"],str(video))
+                seg=asr.transcribe(audio_path,upload_key=context["upload_key"],newapi_base_url=context["newapi_base_url"],newapi_key=context["newapi_key"],audio_duration=duration,language=context["source_lang"],on_status=status)
             control.checkpoint(); self.set_transcribe_progress(batch_id,index,85,"生成文案/SRT")
             output_dir=Path(context["output_directory"]); output_dir.mkdir(parents=True,exist_ok=True)
             json_path,srt_path,txt_path=asr.write_transcript_outputs(output_dir,rename_service.safe_stem(video.stem),seg)
@@ -761,7 +821,7 @@ class App(tk.Tk):
                         self.after(0,lambda key=video_path.stem.casefold():tree.set(key,"state","完成")); return video_path
                     except Exception:
                         self.after(0,lambda key=video_path.stem.casefold():tree.set(key,"state","失败")); raise
-                results=run_batch(targets,operation,workers=min(8,len(targets)),retries=3); good=sum(1 for _,_,error in results if error is None); failures=[f"{pair[0].name}：{error}" for _,pair,error in results if error is not None]; retry_pairs[0]=[pair for _,pair,error in results if error is not None]
+                results=run_batch(targets,operation,workers=rewrite_worker_count(len(targets)),retries=3); good=sum(1 for _,_,error in results if error is None); failures=[f"{pair[0].name}：{error}" for _,pair,error in results if error is not None]; retry_pairs[0]=[pair for _,pair,error in results if error is not None]
                 if failures: self.after(0,lambda values=failures:messagebox.showerror("生成答案失败","\n".join(values[:10]),parent=win))
                 self.after(0,lambda failed=bool(failures),total=len(targets):(status.set(f"完成：{good}/{total}"),start_button.configure(state="normal"),retry_button.configure(state="normal" if failed else "disabled"),self.status.set(f"答案生成完成：{good}/{total}")))
             self.run(work)
@@ -881,6 +941,7 @@ class App(tk.Tk):
                     messagebox.showwarning("导入文案",f"无法解析 {path.name}：{exc}",parent=win); continue
                 if not text: continue
                 entry_title=re.sub(r"的?答案1$","",path.stem).strip() or path.stem
+                local_logger.info("rewrite.import path=%s chars=%s",path,len(text))
                 entries.append({"path":path,"title":entry_title,"text":text}); existing.add(str(path.resolve()).casefold()); added.append(len(entries)-1)
             if added: show_entry(added[0])
             elif not entries: count.set("没有可用的文案 TXT")
@@ -1018,14 +1079,18 @@ class App(tk.Tk):
             index,entry=item; label=entry["title"]; started=time.monotonic(); self.task_store.update_item(result_state["task_id"],index,status="改写中")
             self.after(0,lambda:self._set_rewrite_row(result_tree,index,"改写中"))
             try:
+                local_logger.info("rewrite.item.start batch=%s item=%s title=%s path=%s",result_state["task_id"],index+1,label,entry.get("path"))
                 text=entry["text"].strip()
                 if not text: raise ValueError("转录 TXT 内容为空")
                 def on_retry(attempt,max_attempts):
+                    local_logger.info("rewrite.retry batch=%s item=%s attempt=%s/%s",result_state["task_id"],index+1,attempt,max_attempts)
                     retry_status=f"重试中 ({attempt}/{max_attempts})"
                     self.task_store.update_item(result_state["task_id"],index,status=retry_status)
                     self.after(0,lambda state=retry_status:self._set_rewrite_row(result_tree,index,state))
-                rewritten=immediate_retry(lambda:ai.rewrite_text(text,prompt,key,model,base_url,reasoning_effort),max_attempts=3,on_retry=on_retry)
-                output=rewrite_output_path(output_dir,label,batch_time,index); write_text(output,rewritten+"\n")
+                with local_logger.context(batch=result_state["task_id"],item=index+1,title=label):
+                    rewritten=immediate_retry(lambda:ai.rewrite_text(text,prompt,key,model,base_url,reasoning_effort),max_attempts=3,on_retry=on_retry)
+                output=rewrite_output_path(output_dir,label,batch_time,index); local_logger.info("rewrite.save.start batch=%s item=%s path=%s",result_state["task_id"],index+1,output); write_text(output,rewritten+"\n")
+                local_logger.info("rewrite.save.ok batch=%s item=%s path=%s",result_state["task_id"],index+1,output)
                 elapsed=time.monotonic()-started; result_state["results"][index]={"title":label,"text":rewritten}
                 with result_state["progress_lock"]:
                     result_state["successful_indices"].add(index); result_state["failed_indices"].discard(index)
@@ -1034,6 +1099,7 @@ class App(tk.Tk):
                 self.after(0,lambda:self._show_rewrite_result(result_tree,index,output_text,label,rewritten))
                 return output
             except Exception as exc:
+                local_logger.error("rewrite.item.failed batch=%s item=%s title=%s",result_state["task_id"],index+1,label,exc_info=True)
                 error=str(exc); elapsed=time.monotonic()-started; result_state["results"][index]={"title":label,"text":f"改写失败\n\n{error}"}; self.task_store.update_item(result_state["task_id"],index,status="失败",error=error,duration_seconds=elapsed)
                 with result_state["progress_lock"]:
                     result_state["failed_indices"].add(index); result_state["successful_indices"].discard(index)
@@ -1043,9 +1109,11 @@ class App(tk.Tk):
                 with result_state["progress_lock"]:
                     completed=len(result_state["successful_indices"]|result_state["failed_indices"])
                 self.after(0,lambda:self._update_rewrite_progress(progress,progress_value,progress_text,completed,result_state["total"]))
+        local_logger.info("rewrite.batch.start batch=%s count=%s workers=%s model=%s output=%s",result_state["task_id"],len(indexed_items),rewrite_worker_count(len(indexed_items)),model,output_dir)
         run_batch(indexed_items,operation,workers=rewrite_worker_count(len(indexed_items)),retries=0)
         with result_state["progress_lock"]:
             result_state["running"]=False; ok=len(result_state["successful_indices"]); failed=len(result_state["failed_indices"])
+        local_logger.info("rewrite.batch.end batch=%s success=%s failed=%s",result_state["task_id"],ok,failed)
         self.task_store.update_task(result_state["task_id"],status="完成" if failed==0 else "部分失败")
         self.after(0,lambda:self._finish_rewrite_batch_ui(start_button,batch_retry_button,status,ok,result_state["total"],failed))
     def _update_rewrite_progress(self,bar,value,label,completed,total):
@@ -1066,7 +1134,10 @@ class App(tk.Tk):
         videos=rename_service.list_videos(download_dir)
         if not videos: messagebox.showinfo("生成文案与 SRT","第一步下载目录中没有可识别的视频",parent=self); return
         transcribe_dir=self.step_directory(STEP_TRANSCRIBE_DIR)
-        self.transcribe_counter+=1; batch_id=self.transcribe_counter; self.latest_transcribe_id=batch_id; controls=[downloader_service.DownloadControl() for _ in videos]; context={"project":transcribe_dir,"videos":videos,"output_directory":transcribe_dir,"controls":controls,"source_lang":self.source_lang.get(),"ffmpeg":self.ffmpeg.get(),"api_key":self.asr_key.get()}; self.transcribe_controls[batch_id]=controls; self.transcribe_contexts[batch_id]=context
+        if not self.asr_key.get().strip(): messagebox.showerror("生成文案与 SRT","请先在接口配置中填写百炼临时 OSS Key",parent=self); return
+        if not self.llm_url.get().strip(): messagebox.showerror("生成文案与 SRT","请先在接口配置中填写 New API Base URL",parent=self); return
+        if not self.llm_key.get().strip(): messagebox.showerror("生成文案与 SRT","请先在接口配置中填写 New API Key",parent=self); return
+        self.transcribe_counter+=1; batch_id=self.transcribe_counter; self.latest_transcribe_id=batch_id; controls=[downloader_service.DownloadControl() for _ in videos]; context={"project":transcribe_dir,"videos":videos,"output_directory":transcribe_dir,"controls":controls,"source_lang":self.source_lang.get(),"ffmpeg":self.ffmpeg.get(),"upload_key":self.asr_key.get(),"newapi_base_url":self.llm_url.get(),"newapi_key":self.llm_key.get()}; self.transcribe_controls[batch_id]=controls; self.transcribe_contexts[batch_id]=context
         saved_task=self.task_store.create("transcribe",f"文案与 SRT 批次 {batch_id}",str(transcribe_dir),[{"path":str(video),"name":video.name} for video in videos]); self.transcribe_task_ids[batch_id]=saved_task["id"]; self.task_store.update_task(saved_task["id"],status="运行中")
         self.open_transcribe_window(batch_id,videos,controls); self.run(lambda:self.transcribe(batch_id,context))
     def transcribe(self,batch_id,context):
@@ -1093,4 +1164,7 @@ class App(tk.Tk):
             video=str(next((p for p in self.project.glob("*.mp4") if p.name != "edited.mp4"), self.project/"source.mp4")); duration=media.probe_duration(self.ffmpeg.get(),video); scenes=media.fixed_scenes(duration); seg=json.load(open(self.project/"transcript.json",encoding="utf-8")); rewrite=json.load(open(self.project/"rewrite.json",encoding="utf-8")); raw=ai.edit_plan(seg,scenes,rewrite,self.llm_url.get(),self.llm_key.get(),self.llm_model.get(),OPENAI_COMPAT_REASONING_EFFORT); plan=ai.validate_plan(raw,scenes,rewrite,duration); json.dump(plan,open(self.project/"edit-plan.json","w",encoding="utf-8"),ensure_ascii=False,indent=2); out=str(self.project/"edited.mp4"); media.execute_plan(self.ffmpeg.get(),video,plan,out); self.log(json.dumps(plan,ensure_ascii=False,indent=2)); self.log("成片已导出："+out); self.status.set("剪辑完成")
         except Exception as e: self.status.set("失败"); self.log("剪辑失败："+str(e))
 
-if __name__ == "__main__": App().mainloop()
+if __name__ == "__main__":
+    local_logger.install_exception_hooks()
+    local_logger.info("app.start build=v1-local-log executable=%s", __import__('sys').executable)
+    App().mainloop()

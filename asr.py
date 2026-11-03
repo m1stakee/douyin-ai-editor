@@ -10,19 +10,28 @@ import tempfile
 import time
 
 import requests
+import local_logger
 
-from app_config import dashscope_key
 from text_io import write_text
 
 MODEL = "paraformer-v2"
 UPLOAD_POLICY_URL = "https://dashscope.aliyuncs.com/api/v1/uploads"
-SUBMIT_URL = "https://dashscope.aliyuncs.com/api/v1/services/audio/asr/transcription"
-TASK_URL = "https://dashscope.aliyuncs.com/api/v1/tasks/{task_id}"
+SUBMIT_PATH = "/paraformer/api/v1/services/audio/asr/transcription"
+TASK_PATH = "/paraformer/api/v1/tasks/{task_id}"
 LANGUAGE_CODES = {"中文": "zh", "英语": "en", "日语": "ja", "韩语": "ko", "法语": "fr", "德语": "de", "俄语": "ru"}
 
-def transcribe_request_config(language: str) -> dict:
-    """Compatibility metadata retained for older callers and tests."""
-    return {"endpoint": SUBMIT_URL, "model": MODEL, "language": LANGUAGE_CODES.get(language, "zh")}
+def newapi_root(base_url: str) -> str:
+    root = base_url.strip().rstrip("/")
+    for suffix in ("/v1/chat/completions", "/chat/completions", "/v1"):
+        if root.lower().endswith(suffix):
+            root = root[:-len(suffix)].rstrip("/")
+            break
+    return root
+
+
+def transcribe_request_config(language: str, base_url: str = "") -> dict:
+    root = newapi_root(base_url)
+    return {"endpoint": f"{root}{SUBMIT_PATH}", "model": MODEL, "language": LANGUAGE_CODES.get(language, "zh")}
 
 
 def _srt_time(seconds: float) -> str:
@@ -91,23 +100,25 @@ def prepared_asr_audio(media_path: str, ffmpeg: str = "", on_status: Callable[[s
         yield str(target)
 
 
-def _raise_api_error(response: requests.Response, action: str) -> None:
+def _raise_api_error(response: requests.Response, action: str, service: str = "阿里云百炼") -> None:
     if response.status_code in (401, 403):
-        raise RuntimeError("阿里云百炼 API Key 无效、无权限或服务尚未开通")
+        if service == "New API":
+            raise RuntimeError("New API Key 无效、无权限或 Paraformer 渠道尚未开通")
+        raise RuntimeError("百炼临时 OSS Key 无效、无权限或服务尚未开通")
     if response.status_code == 429:
-        raise RuntimeError(f"阿里云百炼{action}触发限流，请稍后重试")
+        raise RuntimeError(f"{service}{action}触发限流，请稍后重试")
     try:
         detail = response.json().get("message") or response.text
     except ValueError:
         detail = response.text
-    raise RuntimeError(f"阿里云百炼{action}失败（HTTP {response.status_code}）：{str(detail)[:500]}")
+    raise RuntimeError(f"{service}{action}失败（HTTP {response.status_code}）：{str(detail)[:500]}")
 
 
 def upload_temporary_file(media_path: str, key: str) -> str:
     path = Path(media_path)
     if not path.is_file():
         raise FileNotFoundError(f"待转写文件不存在：{path}")
-    response = requests.get(
+    response = local_logger.request(requests.get,
         UPLOAD_POLICY_URL,
         headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
         params={"action": "getPolicy", "model": MODEL},
@@ -116,6 +127,7 @@ def upload_temporary_file(media_path: str, key: str) -> str:
     if response.status_code != 200:
         _raise_api_error(response, "获取上传凭证")
     policy = response.json().get("data") or {}
+    local_logger.register_secrets(policy)
     max_mb = float(policy.get("max_file_size_mb") or 1024)
     if path.stat().st_size > max_mb * 1024 * 1024:
         raise RuntimeError(f"音频文件超过阿里云当前模型的 {max_mb:g} MB 上传限制")
@@ -132,7 +144,7 @@ def upload_temporary_file(media_path: str, key: str) -> str:
             "success_action_status": (None, "200"),
             "file": (path.name, handle, content_type),
         }
-        uploaded = requests.post(policy["upload_host"], files=files, timeout=(15, 600))
+        uploaded = local_logger.request(requests.post,policy["upload_host"], files=files, timeout=(15, 600))
     if uploaded.status_code != 200:
         _raise_api_error(uploaded, "上传音频")
     return f"oss://{object_key}"
@@ -151,29 +163,38 @@ def _parse_segments(payload: dict) -> list[dict]:
     return segments
 
 
-def transcribe(media_path: str, key: str = "", language: str = "中文", on_status: Callable[[str], None] | None = None) -> list[dict]:
-    """Transcribe an audio file with the only supported provider: Aliyun Bailian."""
-    key = key.strip() or dashscope_key()
-    if not key:
-        raise ValueError("请填写阿里云百炼 API Key")
+def transcribe(media_path: str, upload_key: str = "", newapi_base_url: str = "", newapi_key: str = "", audio_duration: float = 0, language: str = "中文", on_status: Callable[[str], None] | None = None) -> list[dict]:
+    """Upload through Bailian temporary OSS, then run Paraformer through New API."""
+    upload_key = upload_key.strip()
+    newapi_key = newapi_key.strip()
+    root = newapi_root(newapi_base_url)
+    if not upload_key:
+        raise ValueError("请填写百炼临时 OSS Key")
+    if not root:
+        raise ValueError("请填写 New API Base URL")
+    if not newapi_key:
+        raise ValueError("请填写 New API Key")
+    audio_duration = float(audio_duration)
+    if not 0 < audio_duration <= 3600:
+        raise ValueError("音频时长必须大于 0 秒且不超过 3600 秒")
     notify = on_status or (lambda _status: None)
-    notify("上传阿里云")
-    file_url = upload_temporary_file(media_path, key)
-    headers = {"Authorization": f"Bearer {key}", "Content-Type": "application/json", "X-DashScope-Async": "enable", "X-DashScope-OssResourceResolve": "enable"}
+    notify("上传临时 OSS")
+    file_url = upload_temporary_file(media_path, upload_key)
+    headers = {"Authorization": f"Bearer {newapi_key}", "Content-Type": "application/json"}
     language_code = LANGUAGE_CODES.get(language, "zh")
-    body = {"model": MODEL, "input": {"file_urls": [file_url]}, "parameters": {"channel_id": [0], "language_hints": [language_code, "en"] if language_code != "en" else ["en"], "timestamp_alignment_enabled": True}}
-    response = requests.post(SUBMIT_URL, headers=headers, json=body, timeout=(15, 60))
+    body = {"model": MODEL, "input": {"file_urls": [file_url], "audio_duration": audio_duration}, "parameters": {"channel_id": [0], "language_hints": [language_code, "en"] if language_code != "en" else ["en"], "timestamp_alignment_enabled": True}}
+    response = local_logger.request(requests.post,f"{root}{SUBMIT_PATH}", headers=headers, json=body, timeout=(15, 60))
     if response.status_code != 200:
-        _raise_api_error(response, "提交转写任务")
+        _raise_api_error(response, "提交转写任务", "New API")
     task_id = (response.json().get("output") or {}).get("task_id")
     if not task_id:
-        raise RuntimeError("阿里云未返回转写任务 ID")
-    notify("等待阿里识别")
+        raise RuntimeError("New API 未返回转写任务 ID")
+    notify("等待 New API 识别")
     deadline = time.monotonic() + 30 * 60
     while time.monotonic() < deadline:
-        result = requests.get(TASK_URL.format(task_id=task_id), headers=headers, timeout=(15, 60))
+        result = local_logger.request(requests.get,f"{root}{TASK_PATH.format(task_id=task_id)}", headers=headers, timeout=(15, 60))
         if result.status_code != 200:
-            _raise_api_error(result, "查询转写任务")
+            _raise_api_error(result, "查询转写任务", "New API")
         output = result.json().get("output") or {}
         status = output.get("task_status")
         if status == "SUCCEEDED":
@@ -181,12 +202,12 @@ def transcribe(media_path: str, key: str = "", language: str = "中文", on_stat
             succeeded = next((row for row in rows if row.get("subtask_status") == "SUCCEEDED"), None)
             if not succeeded:
                 message = next((row.get("message") for row in rows if row.get("message")), "文件转写失败")
-                raise RuntimeError(f"阿里云转写失败：{message}")
-            transcript = requests.get(succeeded.get("transcription_url"), timeout=(15, 60))
+                raise RuntimeError(f"New API 转写失败：{message}")
+            transcript = local_logger.request(requests.get,succeeded.get("transcription_url"), timeout=(15, 60))
             if transcript.status_code != 200:
                 _raise_api_error(transcript, "下载转写结果")
             return _parse_segments(transcript.json())
         if status not in ("PENDING", "RUNNING"):
-            raise RuntimeError(f"阿里云转写任务异常：{output.get('message') or status or '未知状态'}")
+            raise RuntimeError(f"New API 转写任务异常：{output.get('message') or status or '未知状态'}")
         time.sleep(1.5)
-    raise TimeoutError("阿里云转写等待超过 30 分钟，请点击重试")
+    raise TimeoutError("New API 转写等待超过 30 分钟，请点击重试")

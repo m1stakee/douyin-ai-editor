@@ -3,6 +3,7 @@ from pathlib import Path
 from typing import Any, TypeVar
 
 import rename_service
+import local_logger
 
 
 MAX_REWRITE_WORKERS = 5
@@ -19,6 +20,7 @@ def immediate_retry(operation: Callable[[], T], max_attempts: int = 3, on_retry:
         try:
             return operation()
         except Exception:
+            local_logger.error("rewrite.attempt.failed attempt=%s/%s", attempt, attempts, exc_info=True)
             if attempt == attempts:
                 raise
             if on_retry:

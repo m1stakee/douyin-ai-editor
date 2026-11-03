@@ -1,4 +1,5 @@
 from __future__ import annotations
+import local_logger
 
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
@@ -129,7 +130,7 @@ def resolve_video(input_text: str, api_key: str = "", api_url: str = DEFAULT_API
     url = validate_url(extract_share_url(input_text))
     try:
         with _session() as session:
-            response = session.post(api_url.rstrip("/") + "/extract/post", json={"url": url}, headers={"Authorization": f"Bearer {key}", "Accept-Language": "zh"}, timeout=(15, 60))
+            response = local_logger.request(session.post, api_url.rstrip("/") + "/extract/post", json={"url": url}, headers={"Authorization": f"Bearer {key}", "Accept-Language": "zh"}, timeout=(15, 60))
             if response.status_code == 401:
                 raise RuntimeError("哼哼猫 API Key 无效或已失效")
             if response.status_code == 402:

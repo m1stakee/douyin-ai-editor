@@ -18,7 +18,12 @@ from license_client import verify_license, verify_saved_license
 from text_io import read_text, write_text
 from rewrite_source import read_rewrite_source
 from rewrite_batch_service import immediate_retry, rewrite_output_path, rewrite_worker_count, select_failed_items
+from local_logger import _safe, log_directory
 class TestCore(unittest.TestCase):
+    def test_local_log_is_next_to_executable_and_redacts_secrets(self):
+        self.assertEqual(log_directory().name, "logs")
+        self.assertNotIn("secret-value", _safe("Bearer secret-value api_key=secret-value"))
+        self.assertIn("<REDACTED>", _safe("Bearer secret-value"))
     def test_rewrite_batch_uses_at_most_five_workers(self):
         self.assertEqual(rewrite_worker_count(2), 2)
         self.assertEqual(rewrite_worker_count(12), 5)
@@ -72,6 +77,12 @@ class TestCore(unittest.TestCase):
         self.assertIn('统一使用主配置模型',source)
         self.assertNotIn('provider_picker=ttk.Combobox',source)
 
+    def test_answer_generation_uses_at_most_five_workers(self):
+        source=Path(__file__).with_name("main.py").read_text(encoding="utf-8")
+        section=source[source.index("def start_cutting_answers"):source.index("def open_rewrite_window")]
+        self.assertIn("run_batch(targets,operation,workers=rewrite_worker_count(len(targets)),retries=3)",section)
+        self.assertNotIn("workers=min(8,len(targets))",section)
+
     def test_step_three_selects_and_scans_video_srt_directory(self):
         source=Path(__file__).with_name("main.py").read_text(encoding="utf-8")
         self.assertIn('title="选择包含 SRT 的目录"',source)
@@ -79,7 +90,7 @@ class TestCore(unittest.TestCase):
         self.assertNotIn('win.after_idle(recognize_directory)',source)
         self.assertIn('for path in directory.glob("*.srt")',source)
         self.assertIn('source_dir=self.project/STEP_DOWNLOAD_DIR',source)
-        self.assertIn('run_batch(targets,operation,workers=min(8,len(targets)),retries=3)',source)
+        self.assertIn('run_batch(targets,operation,workers=rewrite_worker_count(len(targets)),retries=3)',source)
         self.assertIn('text="失败项重试"',source)
 
     def test_library_rows_have_open_directory_actions(self):
@@ -442,6 +453,13 @@ class TestCore(unittest.TestCase):
         self.assertIn("self.ffmpeg=tk.StringVar(value=asr.resolve_ffmpeg())", source)
         self.assertNotIn('asr.resolve_ffmpeg(saved.get("ffmpeg")', source)
 
+    def test_main_interface_settings_use_grouped_config_layout(self):
+        source = Path(__file__).with_name("main.py").read_text(encoding="utf-8")
+        self.assertIn('text="凭证与下载"', source)
+        self.assertIn('text="New API 接口"', source)
+        self.assertIn('style="ConfigGroup.TFrame"', source)
+        self.assertIn('width=15', source)
+
     def test_main_hides_step_three_button(self):
         source = Path(__file__).with_name("main.py").read_text(encoding="utf-8")
         build_source = source.split("    def build(self):", 1)[1].split(
@@ -478,11 +496,19 @@ class TestCore(unittest.TestCase):
         choice = extract_media_choice(payload)
         self.assertEqual(choice["audio_url"], "https://x/audio.m4a")
 
-    def test_aliyun_asr_config_is_fixed(self):
-        config = transcribe_request_config("中文")
-        self.assertEqual(config["endpoint"], "https://dashscope.aliyuncs.com/api/v1/services/audio/asr/transcription")
+    def test_newapi_paraformer_config_uses_native_route(self):
+        config = transcribe_request_config("中文", "https://gateway.example/v1")
+        self.assertEqual(config["endpoint"], "https://gateway.example/paraformer/api/v1/services/audio/asr/transcription")
         self.assertEqual(config["model"], "paraformer-v2")
         self.assertEqual(config["language"], "zh")
+
+    def test_newapi_base_url_normalizes_chat_completion_variants(self):
+        for base in ("https://gateway.example/v1/chat/completions", "https://gateway.example/chat/completions"):
+            self.assertEqual(transcribe_request_config("英语", base)["endpoint"], "https://gateway.example/paraformer/api/v1/services/audio/asr/transcription")
+
+    def test_transcribe_rejects_duration_outside_plugin_limit(self):
+        with self.assertRaisesRegex(ValueError, "不超过 3600"):
+            transcribe("missing.mp3", upload_key="upload-key", newapi_base_url="https://gateway.example", newapi_key="newapi-key", audio_duration=3601)
 
     def test_segments_export_to_srt(self):
         srt = segments_to_srt([{"start": 1.2, "end": 3.45, "text": "你好，世界"}])
@@ -543,7 +569,7 @@ class TestCore(unittest.TestCase):
     @patch("asr.time.sleep")
     @patch("asr.requests.post")
     @patch("asr.requests.get")
-    def test_transcribe_uploads_prepared_mp3_to_aliyun(self, get, post, _sleep):
+    def test_transcribe_uploads_with_bailian_key_and_submits_newapi_task(self, get, post, _sleep):
         from tempfile import TemporaryDirectory
         policy = Mock(status_code=200)
         policy.json.return_value = {"data": {"upload_dir": "temporary/path", "upload_host": "https://oss.example", "oss_access_key_id": "id", "signature": "sig", "policy": "policy", "x_oss_object_acl": "private", "x_oss_forbid_overwrite": "true", "max_file_size_mb": "100"}}
@@ -557,12 +583,18 @@ class TestCore(unittest.TestCase):
         with TemporaryDirectory() as folder:
             audio = Path(folder) / "中文 标题 #测试.mp3"
             audio.write_bytes(b"audio")
-            result = transcribe(str(audio), key="test-key")
+            result = transcribe(str(audio), upload_key="upload-key", newapi_base_url="https://gateway.example/v1", newapi_key="newapi-key", audio_duration=102.5)
         self.assertEqual(result[0]["text"], "你好")
         uploaded_file = post.call_args_list[0].kwargs["files"]["file"]
         self.assertEqual(uploaded_file[0], "中文 标题 #测试.mp3")
         self.assertEqual(uploaded_file[2], "audio/mpeg")
         self.assertEqual(post.call_args_list[1].kwargs["json"]["model"], "paraformer-v2")
+        self.assertEqual(post.call_args_list[1].args[0], "https://gateway.example/paraformer/api/v1/services/audio/asr/transcription")
+        self.assertEqual(post.call_args_list[1].kwargs["headers"]["Authorization"], "Bearer newapi-key")
+        self.assertEqual(post.call_args_list[1].kwargs["json"]["input"]["audio_duration"], 102.5)
+        self.assertEqual(get.call_args_list[1].args[0], "https://gateway.example/paraformer/api/v1/tasks/task-1")
+        self.assertEqual(get.call_args_list[1].kwargs["headers"]["Authorization"], "Bearer newapi-key")
+        self.assertEqual(get.call_args_list[0].kwargs["headers"]["Authorization"], "Bearer upload-key")
         self.assertIn("task-1", get.call_args_list[1].args[0])
 
     def test_safe_filename_removes_windows_characters(self):
