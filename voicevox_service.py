@@ -345,6 +345,7 @@ def synthesize_script(
     output_path: str | Path,
     *,
     style_id: int,
+    synthesize_sentence: Callable | None = None,
     speed: float = 1.0,
     pitch: float = 0.0,
     volume: float = 1.0,
@@ -374,7 +375,7 @@ def synthesize_script(
 
     for index, sentence in enumerate(sentences, 1):
         segment_path = segment_dir / _safe_audio_name(sentence, index)
-        output = synthesize_speech(
+        output = (synthesize_sentence or synthesize_speech)(
             sentence,
             segment_path,
             style_id=style_id,
@@ -441,6 +442,7 @@ def synthesize_script_files(
     output_directory: str | Path,
     *,
     style_id: int,
+    synthesize_sentence: Callable | None = None,
     speed: float = 1.0,
     pitch: float = 0.0,
     volume: float = 1.0,
@@ -480,6 +482,7 @@ def synthesize_script_files(
                 text,
                 folder / f"{stem}.wav",
                 style_id=style_id,
+                synthesize_sentence=synthesize_sentence,
                 speed=speed,
                 pitch=pitch,
                 volume=volume,

@@ -4,7 +4,7 @@ from pathlib import Path
 import re
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
-import downloader_service, media, asr, ai, rename_service, voicevox_service
+import downloader_service, media, asr, ai, rename_service, voicevox_service, edge_tts_service
 import local_logger
 from text_io import read_text, write_text
 from rewrite_source import read_rewrite_source
@@ -46,7 +46,7 @@ class App(tk.Tk):
         self.style=tk.StringVar(value=saved.get("writing_style","自然口播")); self.length=tk.StringVar(value=saved.get("writing_length","保持原时长"))
         self.license_key=tk.StringVar(value=saved.get("license_key", ""))
         saved_format=str(saved.get("voicevox_output_format", "MP3")).upper(); saved_format=saved_format if saved_format in {"WAV","MP3","M4A","FLAC"} else "MP3"
-        self.voicevox_path=tk.StringVar(value=saved.get("voicevox_path", "")); self.voicevox_voice=tk.StringVar(value=saved.get("voicevox_voice", "")); self.voicevox_speed=tk.StringVar(value=saved.get("voicevox_speed", "1.0")); self.voicevox_pitch=tk.StringVar(value=saved.get("voicevox_pitch", "0.0")); self.voicevox_volume=tk.StringVar(value=saved.get("voicevox_volume", "1.0")); self.voicevox_pause=tk.StringVar(value=saved.get("voicevox_pause", "0.3")); self.voicevox_output_directory=tk.StringVar(value=saved.get("voicevox_output_directory", "")); self.voicevox_output_format=tk.StringVar(value=saved_format); self.voicevox_use_gpu=tk.BooleanVar(value=saved.get("voicevox_use_gpu", False)); self.voicevox_process=None; self.voicevox_process_gpu=None; self.voicevox_window=None
+        self.voice_tab=tk.StringVar(value=saved.get("voice_tab", "voicevox")); self.edge_language=tk.StringVar(value=saved.get("edge_language", "zh-CN")); self.edge_voice=tk.StringVar(value=saved.get("edge_voice", edge_tts_service.DEFAULT_VOICE)); self.edge_speed=tk.StringVar(value=saved.get("edge_speed", "1.0")); self.edge_volume=tk.StringVar(value=saved.get("edge_volume", "1.0")); self.edge_output_directory=tk.StringVar(value=saved.get("edge_output_directory", "")); self.voicevox_path=tk.StringVar(value=saved.get("voicevox_path", "")); self.voicevox_voice=tk.StringVar(value=saved.get("voicevox_voice", "")); self.voicevox_speed=tk.StringVar(value=saved.get("voicevox_speed", "1.0")); self.voicevox_pitch=tk.StringVar(value=saved.get("voicevox_pitch", "0.0")); self.voicevox_volume=tk.StringVar(value=saved.get("voicevox_volume", "1.0")); self.voicevox_pause=tk.StringVar(value=saved.get("voicevox_pause", "0.3")); self.voicevox_output_directory=tk.StringVar(value=saved.get("voicevox_output_directory", "")); self.voicevox_output_format=tk.StringVar(value=saved_format); self.voicevox_use_gpu=tk.BooleanVar(value=saved.get("voicevox_use_gpu", False)); self.voicevox_process=None; self.voicevox_process_gpu=None; self.voicevox_window=None
         self.status=tk.StringVar(value="就绪"); self.task_store=TaskStore(); self.task_center_window=None; self.task_center_tree=None; self.batch_task_ids={}; self.transcribe_task_ids={}
         self.project_text=tk.StringVar(value=f"输出到：{self.project}" if self.project else "尚未选择输出目录")
         self._setup_style()
@@ -138,7 +138,8 @@ class App(tk.Tk):
         logs=ttk.Frame(body,style="CardPanel.TFrame",padding=16); logs.grid(row=1,column=0,sticky="nsew",padx=(0,10),pady=0); logs.columnconfigure(0,weight=1); logs.rowconfigure(1,weight=1); ttk.Label(logs,text="任务记录",style="Section.TLabel").grid(row=0,column=0,sticky="w",pady=(0,8))
         log_frame=tk.Frame(logs,bg="#182333"); log_frame.grid(row=1,column=0,sticky="nsew"); self.text=tk.Text(log_frame,height=10,wrap="word",font=("Consolas",9),bg="#182333",fg="#D8E0EA",insertbackground="#FFFFFF",relief="flat",padx=12,pady=10); log_scroll=ttk.Scrollbar(log_frame,orient="vertical",command=self.text.yview); self.text.configure(yscrollcommand=log_scroll.set); self.text.pack(side="left",fill="both",expand=True); log_scroll.pack(side="right",fill="y")
     def _scroll_main_window(self,event):
-        if event.widget.winfo_toplevel() is self and not isinstance(event.widget,tk.Text) and self.main_canvas.winfo_exists():
+        if not isinstance(event.widget,tk.Misc): return
+        if event.widget.winfo_toplevel() is self and not isinstance(event.widget,(tk.Text,tk.Listbox,ttk.Combobox)) and self.main_canvas.winfo_exists():
             units=-1 if event.delta>0 else 1
             self.main_canvas.yview_scroll(units*3,"units")
     def _field(self, parent, label, var, row, col, secret=False, browse=False, config_style=False, reset_value=None):
@@ -164,7 +165,7 @@ class App(tk.Tk):
         else: self.advanced.grid(row=5,column=0,sticky="ew",pady=(0,4)); self.advanced_button.configure(text="收起接口与工具配置")
         self.after_idle(lambda:self.main_canvas.configure(scrollregion=self.main_canvas.bbox("all")))
     def settings_values(self):
-        return {"output_directory":str(self.project or ""),"download_quality":self.download_quality.get(),"download_workers":self.download_workers.get(),"source_lang":self.source_lang.get(),"henghengmao_api_key":self.download_key.get(),"dashscope_api_key":self.asr_key.get(),"llm_base_url":self.llm_url.get().strip(),"llm_key":self.llm_key.get(),"llm_model":self.llm_model.get(),"answer_directory":self.answer_directory.get(),"anti_flash_directory":self.anti_flash_directory.get(),"library_directory":self.library_directory.get(),"ark_api_key":self.ark_key.get(),"target_lang":self.lang.get(),"writing_style":self.style.get(),"writing_length":self.length.get(),"license_key":self.license_key.get(),"voicevox_path":self.voicevox_path.get(),"voicevox_voice":self.voicevox_voice.get(),"voicevox_speed":self.voicevox_speed.get(),"voicevox_pitch":self.voicevox_pitch.get(),"voicevox_volume":self.voicevox_volume.get(),"voicevox_pause":self.voicevox_pause.get(),"voicevox_output_directory":self.voicevox_output_directory.get(),"voicevox_output_format":self.voicevox_output_format.get(),"voicevox_use_gpu":self.voicevox_use_gpu.get(),"rewrite_prompts":self.rewrite_prompts,"cut_prompts":self.cut_prompts}
+        return {"output_directory":str(self.project or ""),"download_quality":self.download_quality.get(),"download_workers":self.download_workers.get(),"source_lang":self.source_lang.get(),"henghengmao_api_key":self.download_key.get(),"dashscope_api_key":self.asr_key.get(),"llm_base_url":self.llm_url.get().strip(),"llm_key":self.llm_key.get(),"llm_model":self.llm_model.get(),"answer_directory":self.answer_directory.get(),"anti_flash_directory":self.anti_flash_directory.get(),"library_directory":self.library_directory.get(),"ark_api_key":self.ark_key.get(),"target_lang":self.lang.get(),"writing_style":self.style.get(),"writing_length":self.length.get(),"license_key":self.license_key.get(),"voice_tab":self.voice_tab.get(),"edge_language":self.edge_language.get(),"edge_voice":self.edge_voice.get(),"edge_speed":self.edge_speed.get(),"edge_volume":self.edge_volume.get(),"edge_output_directory":self.edge_output_directory.get(),"voicevox_path":self.voicevox_path.get(),"voicevox_voice":self.voicevox_voice.get(),"voicevox_speed":self.voicevox_speed.get(),"voicevox_pitch":self.voicevox_pitch.get(),"voicevox_volume":self.voicevox_volume.get(),"voicevox_pause":self.voicevox_pause.get(),"voicevox_output_directory":self.voicevox_output_directory.get(),"voicevox_output_format":self.voicevox_output_format.get(),"voicevox_use_gpu":self.voicevox_use_gpu.get(),"rewrite_prompts":self.rewrite_prompts,"cut_prompts":self.cut_prompts}
     def fetch_llm_models(self):
         self.status.set("正在获取模型列表…")
         if hasattr(self,"fetch_llm_button"): self.fetch_llm_button.configure(state="disabled",text="获取中…")
@@ -210,11 +211,16 @@ class App(tk.Tk):
     def open_voicevox_window(self):
         if self.voicevox_window and self.voicevox_window.winfo_exists():
             self.voicevox_window.deiconify(); self.voicevox_window.lift(); return
-        win=tk.Toplevel(self); win.title("VOICEVOX 本地语音"); win.geometry("800x880"); win.minsize(700,880); win.resizable(True,False); self.voicevox_window=win
+        win=tk.Toplevel(self); win.title("语音转出"); win.geometry("840x940"); win.minsize(760,900); win.resizable(True,True); self.voicevox_window=win
         outer=ttk.Frame(win,padding=16); outer.pack(fill="both",expand=True); outer.columnconfigure(0,weight=1)
-        ttk.Label(outer,text="VOICEVOX 本地语音",style="Section.TLabel").grid(row=0,column=0,sticky="w")
-        ttk.Label(outer,text="用户从官方渠道安装；本软件只连接本机 127.0.0.1，不会把引擎开放到公网。",style="Muted.TLabel").grid(row=1,column=0,sticky="w",pady=(3,9))
-        install_box=ttk.Frame(outer,style="Panel.TFrame",padding=12,height=158); install_box.grid(row=2,column=0,sticky="ew"); install_box.grid_propagate(False); install_box.columnconfigure(1,weight=1)
+        notebook=ttk.Notebook(outer); notebook.grid(row=0,column=0,sticky="ew",rowspan=4,pady=(0,10))
+        voice_tab=ttk.Frame(notebook); edge_tab=ttk.Frame(notebook)
+        voice_tab.columnconfigure(0,weight=1)
+        notebook.add(voice_tab,text="VOICEVOX 本地语音"); notebook.add(edge_tab,text="Edge TTS 在线语音")
+        notebook.select(0 if self.voice_tab.get() != "edge" else 1)
+        ttk.Label(voice_tab,text="VOICEVOX 本地语音",style="Section.TLabel").grid(row=0,column=0,sticky="w")
+        ttk.Label(voice_tab,text="用户从官方渠道安装；本软件只连接本机 127.0.0.1，不会把引擎开放到公网。",style="Muted.TLabel").grid(row=1,column=0,sticky="w",pady=(3,9))
+        install_box=ttk.Frame(voice_tab,style="Panel.TFrame",padding=12,height=158); install_box.grid(row=2,column=0,sticky="ew"); install_box.grid_propagate(False); install_box.columnconfigure(1,weight=1)
         status_var=tk.StringVar(value="未连接"); operation_var=tk.StringVar(value="正在检测本机引擎……")
         ttk.Label(install_box,text="引擎状态",style="Panel.TLabel",width=11).grid(row=0,column=0,sticky="w"); ttk.Label(install_box,textvariable=status_var,style="Panel.TLabel").grid(row=0,column=1,sticky="w")
         ttk.Label(install_box,text="安装位置",style="Panel.TLabel",width=11).grid(row=1,column=0,sticky="w",pady=(7,0)); path_entry=ttk.Entry(install_box,textvariable=self.voicevox_path); path_entry.grid(row=1,column=1,sticky="ew",pady=(7,0))
@@ -228,7 +234,7 @@ class App(tk.Tk):
         exit_engine_button=ttk.Button(install_actions,text="退出引擎"); exit_engine_button.pack(side="left",padx=(6,0))
         ttk.Label(install_box,text="操作提示",style="Panel.TLabel",width=11).grid(row=3,column=0,sticky="nw",pady=(8,0)); ttk.Label(install_box,textvariable=operation_var,style="Muted.TLabel",wraplength=610).grid(row=3,column=1,sticky="w",pady=(8,0))
 
-        settings_box=ttk.Frame(outer,style="Panel.TFrame",padding=12,height=137); settings_box.grid(row=3,column=0,sticky="ew",pady=10); settings_box.grid_propagate(False); settings_box.columnconfigure(1,weight=1)
+        settings_box=ttk.Frame(voice_tab,style="Panel.TFrame",padding=12,height=137); settings_box.grid(row=3,column=0,sticky="ew",pady=10); settings_box.grid_propagate(False); settings_box.columnconfigure(1,weight=1)
         voice_var=self.voicevox_voice; voice_combo=ttk.Combobox(settings_box,textvariable=voice_var,state="readonly"); voice_combo.grid(row=0,column=1,columnspan=3,sticky="ew")
         ttk.Label(settings_box,text="音色",style="Panel.TLabel",width=11).grid(row=0,column=0,sticky="w")
         speed_var=self.voicevox_speed; pitch_var=self.voicevox_pitch; volume_var=self.voicevox_volume
@@ -394,11 +400,13 @@ class App(tk.Tk):
         connect_button.configure(command=lambda:inspect(True))
         def generate_batch():
             option=voices.get(voice_var.get())
-            if not option: messagebox.showinfo("VOICEVOX","请先启动并连接引擎",parent=win); return
+            is_edge=self.voice_tab.get()=="edge"
+            if not is_edge and not option: messagebox.showinfo("VOICEVOX","请先启动并连接引擎",parent=win); return
             selected_files=[row["path"] for row in file_rows if row["selected"].get()]
             if not selected_files: messagebox.showinfo("VOICEVOX","请导入文案并勾选需要生成的文件",parent=win); return
             progress_rows={str(row["path"]):row for row in file_rows if row["selected"].get()}
             for row in progress_rows.values(): row["progress"].configure(value=0); row["progress_text"].set("0%")
+            edge_options={"voice":self.edge_voice.get(),"rate":float(self.edge_speed.get()),"volume":float(self.edge_volume.get())}
             self.save_all_settings(False); batch_button.configure(state="disabled"); operation_var.set("正在准备批量生成……"); voicevox_progress.configure(value=0); progress_percent.set("0%"); progress_text.set(f"准备处理 {len(selected_files)} 个文件")
             def progress(file_index,file_total,source,sentence_index,sentence_total):
                 value=((file_index-1)+(sentence_index/max(1,sentence_total)))/max(1,file_total)*100
@@ -409,7 +417,10 @@ class App(tk.Tk):
                 self.after(0,update_progress)
             def work():
                 try:
-                    results=voicevox_service.synthesize_script_files(selected_files,output_directory_var.get(),style_id=option.style_id,speed=float(speed_var.get()),pitch=float(pitch_var.get()),volume=float(volume_var.get()),pause_seconds=float(pause_var.get()),output_format=self.voicevox_output_format.get(),ffmpeg_path=asr.resolve_ffmpeg(),on_progress=progress)
+                    if is_edge:
+                        results=edge_tts_service.synthesize_script_files(selected_files,output_directory_var.get(),voice=edge_options["voice"],rate=edge_options["rate"],volume=edge_options["volume"],pause_seconds=float(pause_var.get()),output_format=self.voicevox_output_format.get(),ffmpeg_path=asr.resolve_ffmpeg(),on_progress=progress)
+                    else:
+                        results=voicevox_service.synthesize_script_files(selected_files,output_directory_var.get(),style_id=option.style_id,speed=float(speed_var.get()),pitch=float(pitch_var.get()),volume=float(volume_var.get()),pause_seconds=float(pause_var.get()),output_format=self.voicevox_output_format.get(),ffmpeg_path=asr.resolve_ffmpeg(),on_progress=progress)
                     success=sum(1 for item in results if item["error"] is None); failed=len(results)-success
                     def finished():
                         for item in results:
@@ -419,11 +430,19 @@ class App(tk.Tk):
                                 else: row["progress"].configure(value=0); row["progress_text"].set("失败")
                         voicevox_progress.configure(value=100); progress_percent.set("100%"); progress_text.set(f"生成完成 · 成功 {success}，失败 {failed}"); operation_var.set(f"批量完成：成功 {success}，失败 {failed}"); batch_button.configure(state="normal")
                         details="\n".join(f"失败：{item['source'].name} · {item['error']}" for item in results if item["error"] is not None)
-                        messagebox.showinfo("VOICEVOX 批量生成",f"共 {len(results)} 个文案\n成功：{success}\n失败：{failed}\n每个文案已生成同名 {self.voicevox_output_format.get()}、SRT 和分段目录。\n输出目录：\n{Path(output_directory_var.get()).resolve()}"+(f"\n\n{details}" if details else "")+f"\n\n使用音频时请标注：VOICEVOX: {option.name}",parent=win)
+                        messagebox.showinfo("语音批量生成",f"共 {len(results)} 个文案\n成功：{success}\n失败：{failed}\n每个文案已生成同名 {self.voicevox_output_format.get()}、SRT 和分段目录。\n输出目录：\n{Path(output_directory_var.get()).resolve()}"+(f"\n\n{details}" if details else "")+("" if is_edge else f"\n\n使用音频时请标注：VOICEVOX: {option.name}"),parent=win)
                     self.after(0,finished)
-                except Exception as exc: self.after(0,lambda e=exc:finish_error("VOICEVOX 批量生成失败",e))
+                except Exception as exc: self.after(0,lambda e=exc:finish_error("语音批量生成失败",e))
             self.run(work)
         batch_button.configure(command=generate_batch)
+        from edge_tts_panel import EdgeTtsPanel
+        self.edge_panel=EdgeTtsPanel(edge_tab,self)
+        self.edge_panel.pack(fill="both",expand=True)
+        def tab_changed(_event=None):
+            self.voice_tab.set("edge" if notebook.index(notebook.select())==1 else "voicevox")
+            attribution.set("Edge TTS 在线语音 · 无需 API Key" if self.voice_tab.get()=="edge" else "发布内容时请按角色条款标注，例如：VOICEVOX: 青山龍星")
+            self.save_all_settings(False)
+        notebook.bind("<<NotebookTabChanged>>",tab_changed)
         win.protocol("WM_DELETE_WINDOW",lambda:(self.save_all_settings(False),setattr(self,"voicevox_window",None),win.destroy()))
         inspect(False)
     def choose_ffmpeg(self):
