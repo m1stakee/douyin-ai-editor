@@ -6,7 +6,7 @@ import time
 from PySide6.QtCore import Qt, QUrl
 from PySide6.QtGui import QDesktopServices
 from PySide6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QFormLayout, QLineEdit, QComboBox,
+    QWidget, QVBoxLayout, QHBoxLayout, QFormLayout,
     QPushButton, QLabel, QPlainTextEdit, QTableWidget, QTableWidgetItem,
     QHeaderView, QFileDialog, QProgressBar, QSplitter, QMessageBox,
     QScrollArea, QAbstractItemView, QDialog, QDialogButtonBox,
@@ -16,6 +16,7 @@ import ai
 import downloader_service
 import rename_service
 import asr
+from qt_controls import ComboBox as QComboBox, LineEdit as QLineEdit
 from qt_voice_preview import card, label
 from qt_workflow_service import Workflow, STEPS, DEFAULT_URL, DEFAULT_MODEL, copy_library
 from rewrite_batch_service import immediate_retry
@@ -84,6 +85,7 @@ class ProcessPage(QWidget):
             self.links = QPlainTextEdit()
             self.links.setPlaceholderText('粘贴抖音分享文本或链接，支持多条。')
             self.links.setMinimumHeight(140)
+            self.links.setMaximumHeight(180)
             top_layout.addWidget(self.links)
             self.quality=QComboBox(); self.quality.addItems(['推荐','最高','1080P','720P'])
             self.quality.setCurrentText(host.settings.get('download_quality','推荐'))
@@ -122,6 +124,7 @@ class ProcessPage(QWidget):
         middle,middle_layout = card()
         layout.addWidget(middle,1)
         self.table=table(['文件 / 链接','状态','进度','操作'])
+        self.table.verticalHeader().setDefaultSectionSize(56)
         self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self.table.itemDoubleClicked.connect(self.open_result)
         middle_layout.addWidget(self.table,1)
@@ -156,10 +159,15 @@ class ProcessPage(QWidget):
             self.table.setItem(index,0,item)
             self.table.setItem(index,1,QTableWidgetItem(self.states.get(index,'等待中')))
             self.table.setItem(index,2,QTableWidgetItem('0%'))
-            actions=QWidget(); row=QHBoxLayout(actions); row.setContentsMargins(2,2,2,2)
-            row.addWidget(button('重试',lambda checked=False,i=index:self.begin(rows=[i])))
+            actions=QWidget(); actions.setObjectName('rowActions'); row=QHBoxLayout(actions); row.setContentsMargins(4,4,4,4)
+            retry = button('重试',lambda checked=False,i=index:self.begin(rows=[i]))
+            retry.setMinimumSize(88, 34)
+            row.addWidget(retry)
             if self.kind=='download':
-                row.addWidget(button('暂停/继续',lambda checked=False,i=index:self.pause_download(i)))
+                pause = button('暂停/继续',lambda checked=False,i=index:self.pause_download(i))
+                pause.setMinimumSize(88, 34)
+                row.addWidget(pause)
+            row.addStretch()
             self.table.setCellWidget(index,3,actions)
         self.status.setText(f'共 {len(self.sources)} 个条目')
 

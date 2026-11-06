@@ -7,6 +7,9 @@ from unittest.mock import patch
 import edge_tts_service
 
 class TestEdgeTtsService(unittest.TestCase):
+    def setUp(self):
+        patcher = patch('edge_tts_service.require_key')
+        patcher.start(); self.addCleanup(patcher.stop)
     def test_rate_and_voice_validation(self):
         self.assertEqual(edge_tts_service.rate_to_edge(1.2), "+20%")
         with self.assertRaises(ValueError): edge_tts_service.rate_to_edge(3)
@@ -19,7 +22,7 @@ class TestEdgeTtsService(unittest.TestCase):
                 with wave.open(str(output), "wb") as wav:
                     wav.setnchannels(1); wav.setsampwidth(2); wav.setframerate(24000); wav.writeframes(b"\0\0"*24000)
                 return Path(output), [(0.0, 1.0, text)]
-            with patch.object(edge_tts_service, "synthesize_speech", side_effect=fake):
+            with patch.object(edge_tts_service, "_synthesize_speech", side_effect=fake):
                 result=edge_tts_service.synthesize_script_files([source], Path(folder)/"out", voice="zh-CN-XiaoxiaoNeural", output_format="wav", pause_seconds=0.3, ffmpeg_path=Path(__file__).parent/"vendor"/"ffmpeg"/"ffmpeg.exe")
             self.assertIsNone(result[0]["error"])
             self.assertEqual(result[0]["audio"].suffix, ".wav")
@@ -28,6 +31,9 @@ class TestEdgeTtsService(unittest.TestCase):
             self.assertIn("第一句。", result[0]["srt"].read_text(encoding="utf-8"))
 
 class TestEdgeStreaming(unittest.TestCase):
+    def setUp(self):
+        patcher = patch('edge_tts_service.require_key')
+        patcher.start(); self.addCleanup(patcher.stop)
     def test_subtitles_use_service_timing_and_failure_keeps_old_audio(self):
         class Stream:
             def __init__(self, *args, **kwargs): pass

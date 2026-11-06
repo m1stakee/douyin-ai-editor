@@ -9,8 +9,8 @@ from PySide6.QtGui import QDesktopServices, QFont
 from PySide6.QtMultimedia import QAudioOutput, QMediaPlayer
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QFrame, QLabel, QPushButton,
-    QVBoxLayout, QHBoxLayout, QGridLayout, QComboBox, QListWidget,
-    QListWidgetItem, QCheckBox, QSlider, QLineEdit, QFileDialog,
+    QVBoxLayout, QHBoxLayout, QGridLayout, QListWidget,
+    QListWidgetItem, QCheckBox, QSlider, QFileDialog,
     QProgressBar, QMessageBox, QDoubleSpinBox, QAbstractItemView,
     QScrollArea, QTabBar, QSizePolicy, QCompleter,
 )
@@ -21,43 +21,11 @@ import minimax_tts_service
 from edge_voice_catalog import load_voices, filter_voices
 from app_config import settings_path, load_settings
 import asr
+from qt_controls import ComboBox as QComboBox, LineEdit as QLineEdit
+from qt_theme import TOKENS
 
 
-STYLE = """
-QMainWindow, QWidget#surface { background: #f5f5fa; color: #242331; }
-QWidget { font-family: 'Microsoft YaHei UI'; font-size: 12px; color: #302e40; }
-QFrame#card { background: white; border: 1px solid #e5e4ee; border-radius: 12px; }
-QLabel { background: transparent; }
-QLabel#brand { font-size: 23px; font-weight: 700; color: #282238; }
-QLabel#muted { color: #858195; font-size: 11px; }
-QLabel#section { font-size: 14px; font-weight: 600; color: #333044; }
-QLabel#pill { color: #7c3db4; background: #f1e9fb; border-radius: 8px; padding: 6px 10px; }
-QPushButton { background: #faf9fd; border: 1px solid #e5e2ee; border-radius: 7px; padding: 8px 13px; }
-QPushButton:hover { background: #f1eafa; border-color: #b18bd5; }
-QPushButton:disabled { color: #aba8b6; background: #f5f4f8; }
-QPushButton#primary { background: #8039c3; color: white; border: 0; font-weight: 600; padding: 12px 22px; }
-QPushButton#primary:hover { background: #6e2cac; }
-QPushButton#icon { border: none; background: transparent; padding: 4px; font-size: 18px; }
-QComboBox, QLineEdit, QDoubleSpinBox { border: 1px solid #dedce9; border-radius: 7px; background: white; padding: 7px; min-height: 18px; }
-QComboBox::drop-down { border: none; width: 22px; }
-QComboBox QAbstractItemView { background: white; selection-background-color: #f0e7fb; selection-color: #65319a; }
-QListWidget { background: #fcfbfe; border: 1px solid #e8e5ef; border-radius: 8px; outline: none; padding: 5px; }
-QListWidget::item { padding: 4px; border-radius: 6px; }
-QListWidget::item:selected { background: #f0e6fc; color: #643397; }
-QListWidget::item:hover { background: #f5f0fc; }
-QSlider::groove:horizontal { height: 5px; background: #eeedf4; border-radius: 2px; }
-QSlider::sub-page:horizontal { background: #853cc6; border-radius: 2px; }
-QSlider::handle:horizontal { background: white; border: 1px solid #853cc6; width: 14px; margin: -5px 0; border-radius: 7px; }
-QProgressBar { background: #efedf5; border: none; border-radius: 5px; height: 9px; text-align: center; }
-QProgressBar::chunk { background: #8d50c9; border-radius: 5px; }
-QTabBar::tab { background: #f2f0f7; border: 0; padding: 9px 20px; color: #81798e; }
-QTabBar::tab:selected { background: #ece0fa; color: #7332b0; font-weight: 600; }
-QScrollArea { border: none; background: transparent; }
-QWidget#voiceInner, QWidget#voiceRow { background: white; }
-QScrollBar:vertical { width: 6px; background: transparent; }
-QScrollBar::handle:vertical { background: #d5cfdf; border-radius: 3px; min-height: 25px; }
-QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0; }
-"""
+from qt_theme import STYLE
 
 
 def label(text, kind=None):
@@ -71,8 +39,9 @@ def card():
     widget = QFrame()
     widget.setObjectName('card')
     layout = QVBoxLayout(widget)
-    layout.setContentsMargins(20, 18, 20, 18)
-    layout.setSpacing(12)
+    padding = TOKENS['space_panel']
+    layout.setContentsMargins(padding, padding, padding, padding)
+    layout.setSpacing(TOKENS['space_group'])
     return widget, layout
 
 
@@ -114,6 +83,7 @@ class QtVoiceWindow(QMainWindow):
         self.busy = False
         self.preview_busy = False
         self.voices = []
+        self.voicevox_process = None
         self.selected_voice = self.saved.get('voice', edge_tts_service.DEFAULT_VOICE)
         self.favorites = set(self.saved.get('favorites', []))
         self.temp = tempfile.TemporaryDirectory(prefix='videoflow-qt-preview-')
@@ -157,14 +127,15 @@ class QtVoiceWindow(QMainWindow):
         title.addWidget(label('选择声音，让文案拥有自己的表达。', 'muted'))
         header.addLayout(title)
         header.addStretch()
-        header.addWidget(label('QT 预览版', 'pill'))
         root.addLayout(header)
         content = QHBoxLayout()
         content.setSpacing(18)
         root.addLayout(content, 1)
         left, left_layout = card()
-        left.setFixedWidth(375)
-        content.addWidget(left)
+        left.setMinimumWidth(340)
+        left.setMaximumWidth(460)
+        left.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Expanding)
+        content.addWidget(left, 2)
         self.engine = QTabBar()
         self.engine.addTab('Edge TTS')
         self.engine.addTab('VOICEVOX')
@@ -184,6 +155,12 @@ class QtVoiceWindow(QMainWindow):
         edge_layout = QVBoxLayout(self.edge_controls)
         edge_layout.setContentsMargins(0, 0, 0, 0)
         edge_layout.setSpacing(12)
+        edge_layout.addWidget(label('Edge TTS 使用授权', 'section'))
+        self.edge_key = QLineEdit(self.saved.get('edge_tts_license_key', ''))
+        self.edge_key.setEchoMode(QLineEdit.EchoMode.Password)
+        self.edge_key.setPlaceholderText('填写 Edge TTS 使用密钥')
+        edge_layout.addWidget(self.edge_key)
+        self.edge_key.editingFinished.connect(self.save)
         heading = QHBoxLayout()
         heading.addWidget(label('音色  Voice', 'section'))
         heading.addStretch()
@@ -193,6 +170,12 @@ class QtVoiceWindow(QMainWindow):
         edge_layout.addLayout(heading)
         filters = QGridLayout()
         self.language_combo = QComboBox()
+        self.language_combo.setEditable(True)
+        self.language_combo.setInsertPolicy(QComboBox.InsertPolicy.NoInsert)
+        self.language_combo.setPlaceholderText('输入语言筛选')
+        self.language_combo.completer().setCompletionMode(QCompleter.CompletionMode.PopupCompletion)
+        self.language_combo.completer().setFilterMode(Qt.MatchFlag.MatchContains)
+        self.language_combo.completer().setCaseSensitivity(Qt.CaseSensitivity.CaseInsensitive)
         self.region_combo = QComboBox()
         self.gender_combo = QComboBox()
         self.gender_combo.addItem('全部', '')
@@ -203,7 +186,13 @@ class QtVoiceWindow(QMainWindow):
             filters.addWidget(combo, 1, col)
             combo.setMinimumWidth(75)
         edge_layout.addLayout(filters)
+        self.voice_search = QLineEdit()
+        self.voice_search.setPlaceholderText('输入音色名称或 ID 筛选')
+        self.voice_search.setClearButtonEnabled(True)
+        self.voice_search.textChanged.connect(self.filter_list)
+        edge_layout.addWidget(self.voice_search)
         self.language_combo.currentIndexChanged.connect(self.language_changed)
+        self.language_combo.editTextChanged.connect(self.language_changed)
         self.region_combo.currentIndexChanged.connect(self.filter_list)
         self.gender_combo.currentIndexChanged.connect(self.filter_list)
         favorites_row = QHBoxLayout()
@@ -233,8 +222,15 @@ class QtVoiceWindow(QMainWindow):
         vv = QVBoxLayout(self.vv_controls)
         vv.setContentsMargins(0, 0, 0, 0)
         vv.addWidget(label('VOICEVOX 本地引擎', 'section'))
-        vv.addWidget(label('请先启动已安装的 VOICEVOX。', 'muted'))
-        self.vv_connect = QPushButton('连接本地引擎')
+        path_row = QHBoxLayout()
+        self.vv_path = QLineEdit(self.saved.get('voicevox_path', ''))
+        self.vv_path.setPlaceholderText('VOICEVOX 安装目录')
+        path_row.addWidget(self.vv_path, 1)
+        self.vv_choose = QPushButton('选择安装目录')
+        self.vv_choose.clicked.connect(self.choose_voicevox_directory)
+        path_row.addWidget(self.vv_choose)
+        vv.addLayout(path_row)
+        self.vv_connect = QPushButton('启动并连接')
         self.vv_connect.clicked.connect(self.connect_voicevox)
         vv.addWidget(self.vv_connect)
         self.vv_voice = QComboBox()
@@ -274,11 +270,6 @@ class QtVoiceWindow(QMainWindow):
         completion.setCaseSensitivity(Qt.CaseSensitivity.CaseInsensitive)
         completion.popup().setMinimumWidth(420)
         voice_row.addWidget(self.mm_voice, 1)
-        self.mm_dropdown = QPushButton('▼')
-        self.mm_dropdown.setFixedWidth(36)
-        self.mm_dropdown.setToolTip('展开全部音色')
-        self.mm_dropdown.clicked.connect(self.mm_voice.showPopup)
-        voice_row.addWidget(self.mm_dropdown)
         mm.addLayout(voice_row)
         self.mm_speed = self._slider(mm, '语速', 50, 200, int(self.saved.get('minimax_speed', 100)), lambda n: f'{n / 100:.2f}×')
         self.mm_volume = self._slider(mm, '音量', 1, 1000, int(self.saved.get('minimax_volume', 100)), lambda n: f'{n / 100:.2f}')
@@ -291,7 +282,7 @@ class QtVoiceWindow(QMainWindow):
 
         right = QVBoxLayout()
         right.setSpacing(16)
-        content.addLayout(right, 1)
+        content.addLayout(right, 3)
         scripts, scripts_layout = card()
         right.addWidget(scripts, 1)
         scripts_layout.addWidget(label('文案文件', 'section'))
@@ -407,8 +398,28 @@ class QtVoiceWindow(QMainWindow):
         self.language_combo.clear()
         self.language_combo.addItem('全部', '')
         languages = sorted({v['Locale'].split('-')[0] for v in voices})
+        language_names = {
+            'am': '阿姆哈拉语', 'az': '阿塞拜疆语', 'bn': '孟加拉语', 'bs': '波斯尼亚语',
+            'cy': '威尔士语', 'et': '爱沙尼亚语', 'fa': '波斯语', 'fil': '菲律宾语',
+            'ga': '爱尔兰语', 'gl': '加利西亚语', 'gu': '古吉拉特语', 'hr': '克罗地亚语',
+            'is': '冰岛语', 'iu': '因纽特语', 'jv': '爪哇语', 'ka': '格鲁吉亚语',
+            'kk': '哈萨克语', 'km': '高棉语', 'kn': '卡纳达语', 'lo': '老挝语',
+            'lt': '立陶宛语', 'lv': '拉脱维亚语', 'mk': '马其顿语', 'ml': '马拉雅拉姆语',
+            'mn': '蒙古语', 'mr': '马拉地语', 'mt': '马耳他语', 'my': '缅甸语',
+            'ne': '尼泊尔语', 'ps': '普什图语', 'si': '僧伽罗语', 'so': '索马里语',
+            'sq': '阿尔巴尼亚语', 'sr': '塞尔维亚语', 'su': '巽他语', 'sw': '斯瓦希里语',
+            'ur': '乌尔都语', 'uz': '乌兹别克语', 'zu': '祖鲁语',
+            'af': '南非荷兰语', 'ar': '阿拉伯语', 'bg': '保加利亚语', 'ca': '加泰罗尼亚语',
+            'cs': '捷克语', 'da': '丹麦语', 'de': '德语', 'el': '希腊语', 'en': '英语',
+            'es': '西班牙语', 'fi': '芬兰语', 'fr': '法语', 'he': '希伯来语', 'hi': '印地语',
+            'hu': '匈牙利语', 'id': '印度尼西亚语', 'it': '意大利语', 'ja': '日语', 'ko': '韩语',
+            'ms': '马来语', 'nb': '挪威语', 'nl': '荷兰语', 'pl': '波兰语', 'pt': '葡萄牙语',
+            'ro': '罗马尼亚语', 'ru': '俄语', 'sk': '斯洛伐克语', 'sl': '斯洛文尼亚语',
+            'sv': '瑞典语', 'ta': '泰米尔语', 'te': '泰卢固语', 'th': '泰语', 'tr': '土耳其语',
+            'uk': '乌克兰语', 'vi': '越南语', 'zh': '中文'
+        }
         for code in languages:
-            name = QLocale.languageToString(QLocale(code).language())
+            name = language_names.get(code, QLocale.languageToString(QLocale(code).language()))
             self.language_combo.addItem(name if name != 'C' else code, code)
         self.language_combo.setCurrentIndex(max(0, self.language_combo.findData(self.saved.get('language', ''))))
         self.language_combo.blockSignals(False)
@@ -417,13 +428,25 @@ class QtVoiceWindow(QMainWindow):
         self.region_combo.setCurrentIndex(max(0, self.region_combo.findData(self.saved.get('region', ''))))
         self.filter_list()
 
+    def matching_language_voices(self):
+        combo = self.language_combo
+        query = combo.currentText().strip().casefold()
+        if not query or query == '全部':
+            return self.voices
+        options = {combo.itemData(i): combo.itemText(i) for i in range(1, combo.count())}
+        exact = {code for code, name in options.items() if query in (code.casefold(), name.casefold())}
+        matching = exact or {
+            code for code, name in options.items()
+            if any(query in value.casefold() for value in (code, name, QLocale.languageToString(QLocale(code).language())))
+        }
+        return [voice for voice in self.voices if voice['Locale'].split('-')[0] in matching]
+
     def language_changed(self, *_):
-        language = self.language_combo.currentData() or ''
         previous = self.region_combo.currentData()
         self.region_combo.blockSignals(True)
         self.region_combo.clear()
         self.region_combo.addItem('全部', '')
-        locales = {v['Locale'] for v in self.voices if not language or v['Locale'].split('-')[0] == language}
+        locales = {v['Locale'] for v in self.matching_language_voices()}
         regions = {}
         for locale in locales:
             regions[locale.split('-')[-1]] = QLocale.territoryToString(QLocale(locale.replace('-', '_')).territory())
@@ -434,7 +457,10 @@ class QtVoiceWindow(QMainWindow):
         self.filter_list()
 
     def filter_list(self, *_):
-        voices = filter_voices(self.voices, language=self.language_combo.currentData() or '', region=self.region_combo.currentData() or '', gender=self.gender_combo.currentData() or '', favorites_only=self.favorite_only.isChecked(), favorites=self.favorites)
+        voices = filter_voices(self.matching_language_voices(), region=self.region_combo.currentData() or '', gender=self.gender_combo.currentData() or '', favorites_only=self.favorite_only.isChecked(), favorites=self.favorites)
+        query = self.voice_search.text().strip().casefold()
+        if query:
+            voices = [v for v in voices if query in ' '.join((v['ShortName'], v.get('FriendlyName', ''), v['Locale'])).casefold()]
         self.voice_list.blockSignals(True)
         self.voice_list.clear()
         self.count.setText(f'{len(voices)} 个音色')
@@ -536,13 +562,10 @@ class QtVoiceWindow(QMainWindow):
         self.selected_voice = voice['ShortName']
         self.filter_list()
         self.save()
-        language = voice['Locale'].split('-')[0]
-        samples = {'zh': '你好，这是语音试听，欢迎使用语音工作台。', 'en': 'Hello, this is a voice preview. Welcome to your voice studio.', 'ja': 'こんにちは。音声のサンプルをお聞きください。', 'ko': '안녕하세요. 음성 미리 듣기입니다.', 'fr': 'Bonjour, voici un aperçu de cette voix.', 'es': 'Hola, esta es una prueba de voz.', 'de': 'Hallo, dies ist eine Sprachvorschau.'}
-        text = samples.get(language, 'Hello, this is a voice preview.')
         options = dict(voice=self.selected_voice, rate=self.speed_slider.value()/100, volume=self.volume_slider.value()/100, pitch=self.pitch_slider.value())
         path = Path(self.temp.name) / 'preview.mp3'
         self.status.setText('正在生成试听：' + voice['ShortName'])
-        self.start_job(lambda _: edge_tts_service.synthesize_speech(text, path, **options)[0], self.preview_ready, self.preview_failed)
+        self.start_job(lambda _: edge_tts_service.preview_speech(path, **options)[0], self.preview_ready, self.preview_failed)
 
     @Slot(object)
     def preview_ready(self, path):
@@ -557,12 +580,30 @@ class QtVoiceWindow(QMainWindow):
         self.status.setText('试听失败：' + text)
 
     def connect_voicevox(self):
+        directory = self.vv_path.text().strip()
+        self.save()
         self.vv_connect.setEnabled(False)
-        self.start_job(lambda _: voicevox_service.available_voices(), self.voicevox_ready, self.voicevox_failed)
+        self.vv_choose.setEnabled(False)
+        self.status.setText('正在启动并连接 VOICEVOX…')
+        def connect(_):
+            if not voicevox_service.engine_version():
+                if not directory:
+                    raise voicevox_service.VoicevoxError('请先选择 VOICEVOX 安装目录')
+                self.voicevox_process = voicevox_service.launch_engine(directory)
+                voicevox_service.wait_until_ready()
+            return voicevox_service.available_voices()
+        self.start_job(connect, self.voicevox_ready, self.voicevox_failed)
+
+    def choose_voicevox_directory(self):
+        selected = QFileDialog.getExistingDirectory(self, '选择 VOICEVOX 安装目录', self.vv_path.text().strip())
+        if selected:
+            self.vv_path.setText(selected)
+            self.save()
 
     @Slot(object)
     def voicevox_ready(self, voices):
         self.vv_connect.setEnabled(True)
+        self.vv_choose.setEnabled(True)
         self.vv_voice.clear()
         for voice in voices:
             self.vv_voice.addItem(voice.label, voice.style_id)
@@ -571,6 +612,7 @@ class QtVoiceWindow(QMainWindow):
     @Slot(str)
     def voicevox_failed(self, text):
         self.vv_connect.setEnabled(True)
+        self.vv_choose.setEnabled(True)
         self.status.setText(text)
 
     def add_files(self, paths):
@@ -638,6 +680,9 @@ class QtVoiceWindow(QMainWindow):
             return
         engine = self.engine.currentIndex()
         edge = engine == 0
+        if edge and not self.edge_key.text().strip():
+            self.status.setText('请先填写 Edge TTS 使用密钥')
+            return
         if engine == 1 and self.vv_voice.currentData() is None:
             self.status.setText('请先连接 VOICEVOX 本地引擎')
             return
@@ -647,7 +692,7 @@ class QtVoiceWindow(QMainWindow):
         output = self.output.text()
         common = dict(pause_seconds=self.pause.value(), output_format=self.output_format.currentText().lower(), ffmpeg_path=asr.resolve_ffmpeg())
         if edge:
-            options = dict(voice=self.selected_voice, rate=self.speed_slider.value()/100, volume=self.volume_slider.value()/100, pitch=self.pitch_slider.value())
+            options = dict(license_key=self.edge_key.text().strip(), voice=self.selected_voice, rate=self.speed_slider.value()/100, volume=self.volume_slider.value()/100, pitch=self.pitch_slider.value())
             service = edge_tts_service
         elif engine == 1:
             options = dict(style_id=self.vv_voice.currentData(), speed=self.vv_speed.value()/100, volume=self.vv_volume.value()/100, pitch=self.vv_pitch.value()/100)
@@ -712,6 +757,8 @@ class QtVoiceWindow(QMainWindow):
         value = dict(voice=self.selected_voice, favorites=sorted(self.favorites), favorites_only=self.favorite_only.isChecked(), language=self.language_combo.currentData() or '', region=self.region_combo.currentData() or '', gender=self.gender_combo.currentData() or '', speed=self.speed_slider.value(), volume=self.volume_slider.value(), pitch=self.pitch_slider.value(), output=self.output.text(), format=self.output_format.currentText(), pause=self.pause.value(), engine=self.engine.currentIndex(), minimax_api_key=self.mm_key.text(), minimax_base_url=self.mm_base.currentData(), minimax_model=self.mm_model.currentText(), minimax_voice=self.mm_voice.currentData() or self.mm_voice.currentText(), minimax_speed=self.mm_speed.value(), minimax_volume=self.mm_volume.value(), minimax_pitch=self.mm_pitch.value())
         self.config_path.parent.mkdir(parents=True, exist_ok=True)
         value['minimax_voice'] = self.minimax_voice_id()
+        value['edge_tts_license_key'] = self.edge_key.text().strip()
+        value['voicevox_path'] = self.vv_path.text().strip()
         temporary = self.config_path.with_suffix('.tmp')
         temporary.write_text(json.dumps(value, ensure_ascii=False, indent=2), encoding='utf-8')
         temporary.replace(self.config_path)

@@ -6,7 +6,7 @@ from PySide6.QtCore import Qt, QThreadPool, Slot, QTimer, QUrl
 from PySide6.QtGui import QFont, QDesktopServices
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QListWidget,
-    QStackedWidget, QLineEdit, QPushButton, QLabel, QTableWidgetItem,
+    QStackedWidget, QPushButton, QLabel, QTableWidgetItem,
     QMessageBox, QDialog, QDialogButtonBox,
 )
 
@@ -16,18 +16,10 @@ from task_store import TaskStore
 from license_client import LICENSE_SERVER_URL, verify_license
 from qt_voice_preview import QtVoiceWindow, Job, STYLE, card, label
 from qt_client_pages import ProcessPage, SettingsPage, LibraryPage, RenamePage, button, folder_row, table
+from qt_controls import LineEdit as QLineEdit
 
 
-CLIENT_STYLE = STYLE + """
-QListWidget#navigation { background: #ffffff; border: none; border-radius: 10px; padding: 8px; font-size: 13px; }
-QListWidget#navigation::item { padding: 15px 12px; margin: 3px 0; border-radius: 7px; }
-QListWidget#navigation::item:selected { background: #eee2fb; color: #7134a9; }
-QTableWidget { background: white; alternate-background-color: #faf9fd; border: 1px solid #e9e5f1; border-radius: 8px; gridline-color: #f0edf5; selection-background-color: #f0e6fc; selection-color: #513478; }
-QHeaderView::section { background: #f6f3fa; color: #6f647d; border: none; border-bottom: 1px solid #e6e0ee; padding: 9px; }
-QTableWidget::item { padding: 8px; }
-QPlainTextEdit { background: #fcfbfe; border: 1px solid #e4dfed; border-radius: 8px; padding: 10px; selection-background-color: #d5b8ef; }
-QSplitter::handle { background: transparent; }
-"""
+from qt_theme import CLIENT_STYLE
 
 
 class VideoFlowQt(QMainWindow):
@@ -49,13 +41,13 @@ class VideoFlowQt(QMainWindow):
     def _build(self):
         surface=QWidget();surface.setObjectName('surface');self.setCentralWidget(surface)
         layout=QHBoxLayout(surface);layout.setContentsMargins(20,20,20,20);layout.setSpacing(22)
-        sidebar=QVBoxLayout();sidebar.setSpacing(20);brand=label('VideoFlow','brand');sidebar.addWidget(brand);sidebar.addWidget(label('QT 智能工作台','muted'))
+        sidebar=QVBoxLayout();sidebar.setSpacing(16);brand=label('VideoFlow','brand');sidebar.addWidget(brand);sidebar.addWidget(label('视频创作工作台','muted'))
         self.navigation=QListWidget();self.navigation.setObjectName('navigation');self.navigation.setFixedWidth(190)
         self.navigation.addItems(['01   下载视频','02   文案与 SRT','03   生成答案','04   AI 改写','05   语音转出','06   资源库','     同步重命名','     任务记录','     接口与配置'])
         sidebar.addWidget(self.navigation,1);sidebar.addWidget(label('API 模式 · 本地保存配置','muted'));layout.addLayout(sidebar)
         content=QVBoxLayout();content.setSpacing(16);layout.addLayout(content,1)
         header,head=card();content.addWidget(header)
-        top=QHBoxLayout();self.heading=label('下载视频','brand');top.addWidget(self.heading);top.addStretch();top.addWidget(label('QT 独立版','pill'));head.addLayout(top)
+        top=QHBoxLayout();self.heading=label('下载视频','brand');top.addWidget(self.heading);top.addStretch();head.addLayout(top)
         output_row=QHBoxLayout();output_row.addWidget(label('工作目录','muted'))
         self.project,project_row=folder_row(self.settings.get('output_directory',''),self.project_changed)
         self.project.editingFinished.connect(self.project_changed);output_row.addLayout(project_row,1);head.addLayout(output_row)
